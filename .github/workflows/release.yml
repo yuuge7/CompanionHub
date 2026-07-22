@@ -1,0 +1,97 @@
+name: Build & Release APK
+
+# Every push to main builds a signed-format release APK and publishes/refreshes
+# a GitHub Release named "Companion Hub vX.Y", where X.Y is the major.minor of
+# the `version:` field in pubspec.yaml (e.g. version: 1.2.0+5  ->  v1.2).
+#
+# Bump the minor/major in pubspec.yaml when you want a brand-new release entry;
+# pushing more commits under the same X.Y refreshes that same release in place.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Exposed to steps so `if:` can detect whether signing secrets are present.
+    env:
+      RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.4"
+          channel: stable
+          cache: true
+
+      - name: Derive version (vX.Y) from pubspec
+        id: version
+        run: |
+          FULL=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d '+' -f1)
+          XY=$(echo "$FULL" | cut -d '.' -f1-2)
+          echo "tag=v${XY}" >> "$GITHUB_OUTPUT"
+          echo "name=Companion Hub v${XY}" >> "$GITHUB_OUTPUT"
+
+      # Recreate the release keystore + key.properties from repository secrets so
+      # the APK is signed with the real key. If the secret is absent (e.g. a fork
+      # without secrets) this is skipped and the build falls back to the debug key.
+      - name: Set up release signing
+        if: ${{ env.RELEASE_KEYSTORE_BASE64 != '' }}
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > companionhub-release.jks
+          cat > android/key.properties <<EOF
+          storePassword=${RELEASE_STORE_PASSWORD}
+          keyPassword=${RELEASE_KEY_PASSWORD}
+          keyAlias=${RELEASE_KEY_ALIAS}
+          storeFile=companionhub-release.jks
+          EOF
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk \
+             "CompanionHub-${{ steps.version.outputs.tag }}.apk"
+
+      # Make re-runs on the same version idempotent: drop any existing release
+      # + tag so the new build cleanly replaces it at the current commit.
+      - name: Remove previous release for this version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "${{ steps.version.outputs.tag }}" \
+            --yes --cleanup-tag || true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.name }}
+          generate_release_notes: true
+          files: CompanionHub-${{ steps.version.outputs.tag }}.apk
