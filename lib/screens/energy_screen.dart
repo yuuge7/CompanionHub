@@ -268,8 +268,9 @@ class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
           const SizedBox(height: 12),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              for (final delta in const [-60, -30, -10])
+              for (final delta in cfg.quickDeltas)
                 ActionChip(
                   label: Text('$delta'),
                   onPressed: () {
@@ -283,7 +284,7 @@ class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
                 onPressed: () => _controller.text = '0',
               ),
               ActionChip(
-                label: Text('Cap (${cfg.normalCap})'),
+                label: Text('Full (${cfg.normalCap})'),
                 onPressed: () => _controller.text = '${cfg.normalCap}',
               ),
             ],

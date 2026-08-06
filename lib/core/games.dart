@@ -25,6 +25,7 @@ class GameConfig {
     required this.normalRateMinutes,
     this.overflowCap,
     this.overflowRateMinutes,
+    this.quickDeltas = const [-60, -30, -10],
     required this.pullCost,
     required this.hardPity,
     required this.softPityStart,
@@ -48,6 +49,10 @@ class GameConfig {
   /// Absolute cap including overflow. null = game has no overflow reserve.
   final int? overflowCap;
   final int? overflowRateMinutes;
+
+  /// Negative quick-spend amounts offered as chips in the energy editor,
+  /// matching the game's common activity costs. Largest spend first.
+  final List<int> quickDeltas;
 
   // -- Gacha --
   final String currencyName;
@@ -90,6 +95,7 @@ final Map<GameId, GameConfig> kGames = {
     normalRateMinutes: 6,
     overflowCap: 2400,
     overflowRateMinutes: 18,
+    quickDeltas: [-240, -200, -60, -40, -30, -10],
     pullCost: 160,
     hardPity: 90,
     softPityStart: 74,
@@ -116,6 +122,7 @@ final Map<GameId, GameConfig> kGames = {
     normalRateMinutes: 6,
     overflowCap: 480,
     overflowRateMinutes: 12,
+    quickDeltas: [-80, -60, -40],
     pullCost: 160,
     hardPity: 80,
     softPityStart: 66,
