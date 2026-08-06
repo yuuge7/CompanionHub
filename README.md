@@ -233,12 +233,18 @@ Place the resulting `.jks` in the project root and fill in `android/key.properti
 [`.github/workflows/release.yml`](.github/workflows/release.yml) builds and
 publishes a GitHub Release on **every push to `main`**.
 
-- The release is named **`Companion Hub vX.Y`**, where `X.Y` is the
-  **major.minor** of the `version:` field in `pubspec.yaml`
-  (e.g. `version: 1.2.0+5` → **`v1.2`**).
-- Bump the minor/major in `pubspec.yaml` to cut a new release entry; further
-  pushes under the same `X.Y` refresh that same release in place.
-- The workflow runs `flutter analyze` and `flutter test` before building.
+- The `version:` field in `pubspec.yaml` is **bumped automatically** — patch
+  segment plus build number (`1.2.0+5` → `1.2.1+6`). You never edit it by hand.
+- The release is named **`Companion Hub vX.Y.Z`** and tagged **`vX.Y.Z`**, and
+  carries `CompanionHub-vX.Y.Z.apk`.
+- The workflow runs `flutter analyze` and `flutter test` **before** building.
+  Only if all three pass is the bump committed back to `main` as
+  `chore: release vX.Y.Z [skip ci]`, so `main` never records a version that
+  failed to build.
+- For a **minor or major** bump, use **Actions → Build & Release APK → Run
+  workflow** and pick the segment from the dropdown.
+- The bump commit is pushed with `GITHUB_TOKEN`; pushes made with that token do
+  not trigger workflow runs, so the workflow cannot re-trigger itself.
 
 > GitHub only executes workflow files located in **`.github/workflows/`** — that
 > is why the file lives there rather than directly under `.github/`.
