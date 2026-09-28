@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/games.dart';
 import '../core/reset_time.dart';
+import '../data/models.dart';
 import '../providers/providers.dart';
 import '../services/overlay_service.dart';
+import 'account_tag.dart';
 
 /// Module C: Multi-game daily task checklists + floating bubble controls.
 class TasksScreen extends ConsumerStatefulWidget {
@@ -58,6 +60,7 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final tasks = ref.watch(tasksProvider.notifier);
     ref.watch(tasksProvider); // rebuild when checks change
+    final settings = ref.watch(settingsProvider);
     final theme = Theme.of(context);
 
     return ListView(
@@ -140,8 +143,14 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
         ),
 
         // ---- Per-game checklists ----
-        for (final g in ref.watch(visibleGamesProvider))
-          _GameTaskCard(game: g, now: now, tasks: tasks),
+        for (final a in ref.watch(visibleAccountsProvider))
+          _GameTaskCard(
+            key: ValueKey(a.key),
+            account: a,
+            showAccount: settings.showsAccountLabels(a.game),
+            now: now,
+            tasks: tasks,
+          ),
       ],
     );
   }
@@ -149,35 +158,41 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
 
 class _GameTaskCard extends ConsumerWidget {
   const _GameTaskCard({
-    required this.game,
+    super.key,
+    required this.account,
+    required this.showAccount,
     required this.now,
     required this.tasks,
   });
 
-  final GameId game;
+  final Account account;
+  final bool showAccount;
   final DateTime now;
   final TasksNotifier tasks;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cfg = game.config;
+    final cfg = account.game.config;
     final theme = Theme.of(context);
     final total = cfg.dailyTasks.length;
     final done = [
       for (var i = 0; i < total; i++)
-        if (tasks.isChecked(game, i, now)) i
+        if (tasks.isChecked(account, i, now)) i
     ].length;
     final resetIn =
-        nextDailyReset(cfg.dailyResetHour, now).difference(now);
+        nextDailyReset(cfg.reset, now).difference(now);
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
         initiallyExpanded: done < total,
         leading: CircleAvatar(radius: 5, backgroundColor: cfg.color),
-        title: Text(cfg.name,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600)),
+        title: GameAccountTitle(
+          account: account,
+          showAccount: showAccount,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
         subtitle: Text(
           '$done/$total done • resets in ${formatDuration(resetIn)}',
           style: theme.textTheme.bodySmall
@@ -192,9 +207,9 @@ class _GameTaskCard extends ConsumerWidget {
               dense: true,
               activeColor: cfg.color,
               controlAffinity: ListTileControlAffinity.leading,
-              value: tasks.isChecked(game, i, now),
+              value: tasks.isChecked(account, i, now),
               title: Text(cfg.dailyTasks[i]),
-              onChanged: (v) => tasks.toggle(game, i, v ?? false),
+              onChanged: (v) => tasks.toggle(account, i, v ?? false),
             ),
         ],
       ),

@@ -1,29 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../core/games.dart';
 import '../core/reset_time.dart';
+import '../data/models.dart';
 import '../providers/providers.dart';
 
-/// NTE Weekly Reset Dashboard: City Tycoon stamina, weekly boss limits,
-/// Realm of Greed, Monday-05:00 reset countdown and burn-warning status.
+/// NTE Weekly Reset Dashboard: City Tycoon stamina, Anomaly Pilgrimage
+/// limits, Realm of Greed, Monday reset countdown and burn-warning status —
+/// all for one NTE [account].
 class NteWeeklyScreen extends ConsumerWidget {
-  const NteWeeklyScreen({super.key});
+  const NteWeeklyScreen({super.key, required this.account});
+
+  final Account account;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final weekly = ref.watch(nteWeeklyProvider);
+    ref.watch(nteWeeklyProvider);
+    final notifier = ref.read(nteWeeklyProvider.notifier);
+    final weekly = notifier.of(account);
     final settings = ref.watch(settingsProvider);
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final theme = Theme.of(context);
     final cfg = GameId.nte.config;
 
     final nextReset =
-        nextWeeklyReset(kNteWeeklyResetWeekday, kNteWeeklyResetHour, now);
+        nextWeeklyReset(kNteWeeklyResetWeekday, cfg.reset, now);
     final maxStamina = nteCityStaminaForLevel(weekly.tycoonLevel);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('NTE Weekly Dashboard')),
+      appBar: AppBar(
+        title: Text(settings.withAccountLabel(
+            'NTE Weekly Dashboard', GameId.nte, account.id)),
+      ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
         children: [
@@ -31,7 +41,8 @@ class NteWeeklyScreen extends ConsumerWidget {
           Card(
             child: ListTile(
               leading: Icon(Icons.event_repeat, color: cfg.color),
-              title: const Text('Weekly reset: Monday 05:00'),
+              title: Text('Weekly reset: Monday ${cfg.reset.label} '
+                  '(${DateFormat('EEE HH:mm').format(nextReset)} your time)'),
               subtitle: Text(
                   'Resets in ${formatDuration(nextReset.difference(now))}'),
             ),
@@ -55,27 +66,24 @@ class NteWeeklyScreen extends ConsumerWidget {
                       ),
                       IconButton(
                         icon: const Icon(Icons.remove_circle_outline),
-                        onPressed: () => ref
-                            .read(nteWeeklyProvider.notifier)
-                            .setTycoonLevel(weekly.tycoonLevel - 1),
+                        onPressed: () => notifier.setTycoonLevel(
+                            account, weekly.tycoonLevel - 1),
                       ),
                       IconButton(
                         icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () => ref
-                            .read(nteWeeklyProvider.notifier)
-                            .setTycoonLevel(weekly.tycoonLevel + 1),
+                        onPressed: () => notifier.setTycoonLevel(
+                            account, weekly.tycoonLevel + 1),
                       ),
                     ],
                   ),
                   Slider(
                     value: weekly.tycoonLevel.toDouble(),
                     min: 1,
-                    max: 60,
-                    divisions: 59,
+                    max: kNteMaxTycoonLevel.toDouble(),
+                    divisions: kNteMaxTycoonLevel - 1,
                     label: '${weekly.tycoonLevel}',
-                    onChanged: (v) => ref
-                        .read(nteWeeklyProvider.notifier)
-                        .setTycoonLevel(v.round()),
+                    onChanged: (v) =>
+                        notifier.setTycoonLevel(account, v.round()),
                   ),
                   Container(
                     width: double.infinity,
@@ -118,9 +126,8 @@ class NteWeeklyScreen extends ConsumerWidget {
                     activeColor: cfg.color,
                     title: Text(kNteWeeklyTasks[i]),
                     controlAffinity: ListTileControlAffinity.leading,
-                    onChanged: (v) => ref
-                        .read(nteWeeklyProvider.notifier)
-                        .toggleTask(i, v ?? false),
+                    onChanged: (v) =>
+                        notifier.toggleTask(account, i, v ?? false),
                   ),
               ],
             ),

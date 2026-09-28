@@ -19,6 +19,9 @@ class PityScreen extends ConsumerStatefulWidget {
 class _PityScreenState extends ConsumerState<PityScreen> {
   GameId _selected = GameId.hsr;
 
+  /// Last account picked per game (multi-account mode).
+  final Map<GameId, int> _accountIds = {};
+
   @override
   Widget build(BuildContext context) {
     final games = ref.watch(visibleGamesProvider);
@@ -27,7 +30,15 @@ class _PityScreenState extends ConsumerState<PityScreen> {
     }
     // Fall back when the selected game was hidden in Settings.
     final selected = games.contains(_selected) ? _selected : games.first;
-    final plan = ref.watch(pityPlansProvider)[selected]!;
+    // ...and when the selected account was removed or the mode turned off.
+    final accounts =
+        ref.watch(settingsProvider).activeAccountsOf(selected);
+    final account = accounts.firstWhere(
+      (a) => a.id == _accountIds[selected],
+      orElse: () => accounts.first,
+    );
+    ref.watch(pityPlansProvider);
+    final plan = ref.read(pityPlansProvider.notifier).of(account);
 
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
@@ -44,8 +55,29 @@ class _PityScreenState extends ConsumerState<PityScreen> {
             onSelectionChanged: (s) => setState(() => _selected = s.first),
           ),
         ),
+        if (accounts.length > 1)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Row(
+              children: [
+                for (final a in accounts)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(a.label),
+                      selected: a == account,
+                      selectedColor:
+                          selected.config.color.withValues(alpha: .25),
+                      onSelected: (_) =>
+                          setState(() => _accountIds[selected] = a.id),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         const SizedBox(height: 8),
-        _PlanForm(key: ValueKey(selected), plan: plan),
+        _PlanForm(key: ValueKey(account.key), plan: plan),
         _ForecastCard(plan: plan),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -103,8 +135,11 @@ class _PlanFormState extends ConsumerState<_PlanForm> {
     super.dispose();
   }
 
+  PityPlan get _current =>
+      ref.read(pityPlansProvider)[widget.plan.key] ?? widget.plan;
+
   void _commit() {
-    final current = ref.read(pityPlansProvider)[widget.plan.game]!;
+    final current = _current;
     final cfg = widget.plan.game.config;
     ref.read(pityPlansProvider.notifier).update(current.copyWith(
           pity: (int.tryParse(_pity.text) ?? 0).clamp(0, cfg.hardPity - 1),
@@ -128,7 +163,8 @@ class _PlanFormState extends ConsumerState<_PlanForm> {
   @override
   Widget build(BuildContext context) {
     final cfg = widget.plan.game.config;
-    final plan = ref.watch(pityPlansProvider)[widget.plan.game]!;
+    ref.watch(pityPlansProvider);
+    final plan = _current;
 
     return Card(
       child: Padding(
@@ -161,13 +197,9 @@ class _PlanFormState extends ConsumerState<_PlanForm> {
                 title: const Text('Guaranteed rate-up'),
                 subtitle: const Text('Lost the last 50/50 coin flip'),
                 value: plan.guaranteed,
-                onChanged: (v) {
-                  final cur =
-                      ref.read(pityPlansProvider)[widget.plan.game]!;
-                  ref
-                      .read(pityPlansProvider.notifier)
-                      .update(cur.copyWith(guaranteed: v));
-                },
+                onChanged: (v) => ref
+                    .read(pityPlansProvider.notifier)
+                    .update(_current.copyWith(guaranteed: v)),
               )
             else
               Padding(
@@ -245,7 +277,8 @@ class _ForecastCard extends ConsumerWidget {
                       lastDate: now.add(const Duration(days: 365)),
                     );
                     if (picked != null) {
-                      final cur = ref.read(pityPlansProvider)[plan.game]!;
+                      final cur =
+                          ref.read(pityPlansProvider)[plan.key] ?? plan;
                       ref.read(pityPlansProvider.notifier).update(
                           cur.copyWith(
                               targetDateMs: picked.millisecondsSinceEpoch));

@@ -6,8 +6,9 @@
 
 Energy timers, pity forecasting, daily-task tracking, a floating in-game
 checklist and a home screen widget — for
-**Honkai: Star Rail**, **Wuthering Waves**, **Reverse: 1999** and
-**Neverness to Everness**.
+**Honkai: Star Rail**, **Wuthering Waves**, **Reverse: 1999**,
+**Neverness to Everness** and **Genshin Impact** — with a multi-account mode for
+players running more than one account per game.
 
 100% on-device · no account · no network · no telemetry
 
@@ -32,38 +33,66 @@ checklist and a home screen widget — for
 
 ## Features
 
-### ⚡ Energy & overflow timers
-Live per-game regeneration projection with distinct normal and overflow rates
-(HSR 300 → 2400 @ 6/18 min, WuWa 240 → 480 @ 6/12 min, Re:1999 & NTE 240 @
-6 min). Cap warnings fire 30 minutes ahead. **Sleep Safe** suppresses night-time
-alarms and instead sends a single silent morning summary reporting the overflow
-accrued overnight.
+### ⚡ Energy & reserve timers
+Live per-game regeneration projection. The main pool and the reserve pool are
+tracked separately, as in-game:
+
+| Game | Main pool | Reserve pool |
+|------|-----------|--------------|
+| HSR | 300 Trailblaze Power, 1 / 6 min | 2,400 Reserved Trailblaze Power, 1 / 18 min |
+| WuWa | 240 Waveplates, 1 / 6 min | 480 Waveplate Crystals, 1 / 12 min |
+| Re:1999 | 240 Activity, 1 / 6 min | — |
+| NTE | 240–360 Character Pixels (Dream Weaver's Knot level), 1 / 6 min | — |
+| Genshin | 200 Original Resin, 1 / 8 min | — |
+
+The reserve only fills while the main pool is at its cap, and spending never
+touches it. Values above the cap (after refills) are kept; regeneration pauses
+until you drop below. Cap warnings fire 30 minutes ahead. **Sleep Safe**
+suppresses night-time alarms and instead sends a single silent morning summary
+reporting what the reserve banked overnight.
 
 ### 🎲 Pity forecaster
 Exact probability of securing the featured character given current pity,
 guarantee state and projected currency income to a target date — a soft-pity
-convolution model with 50/50 handling for HSR/WuWa/Re:1999 and straight
-guarantee for NTE.
+convolution model with 50/50 handling for HSR/WuWa/Re:1999/Genshin and
+straight guarantee for NTE (0.99% per roll, 19.59% on the Modified Board after
+70 rolls, featured S-class guaranteed on roll 90).
 
 ### ✅ Daily tasks & floating overlay
-Per-game daily checklists that auto-clear at each game's server reset
-(HSR/WuWa 06:00, NTE 08:00, Re:1999 13:00, device-local). A draggable
+Per-game daily checklists that auto-clear at each game's server reset. Resets
+are defined on the server clock (HSR/WuWa/Genshin Europe 04:00 UTC+1, NTE
+Europe 05:00 UTC+0, Re:1999 Global 05:00 UTC-5) and shown in your time zone, so
+they stay right across daylight-saving switches. A draggable
 **floating bubble** (`flutter_overlay_window`) expands into the checklist over
 any running game so you can tick dailies without alt-tabbing.
 
 ### 📅 NTE weekly dashboard
-City Tycoon stamina tracking, three weekly bosses plus Realm of Greed, a
-Monday-05:00 reset and a Sunday-evening burn warning when limits are unfinished.
+City Stamina cap by City Tycoon level (100 → 200 @ Lv5 → 350 @ Lv10 → 500 @
+Lv16 → 700 @ Lv23, max level 45), the three weekly Anomaly Pilgrimage claims
+plus Realm of Greed, the Monday 05:00 (server) reset and a Sunday-evening burn
+warning when limits are unfinished.
 
 ### 🏠 Home screen widget
 A native Kotlin widget that converts raw premium currency into pull counts and
 shows each game's live energy with a progress bar **and a fill ETA — both the
-time remaining and the exact clock time energy hits the cap** (then the overflow
+time remaining and the exact clock time energy hits the cap** (then the
 reserve). Energy is projected natively at render time, so the numbers stay fresh
 without waking the Flutter engine.
 
+### 👥 Multi-account mode
+Turn on **Settings → Multi-account mode**, then **Manage accounts** to add up to
+ten accounts per game (main + alts, e.g. one per server). Each account keeps its
+own energy timer and cap alerts, pity plan, daily checklist and NTE weeklies;
+cards, the overlay bubble and notifications are tagged with the account name
+once a game has more than one. Pick which account the home screen widget shows
+per game. Turning the mode off pauses the extra accounts (no cards, no alerts)
+without deleting anything; removing an account deletes its data.
+
+Existing single-account data needs no migration: the main account keeps the
+original storage keys, extra accounts are stored as `<game>@<id>`.
+
 ### ⚙️ Show / hide games
-Any of the four games can be hidden from **Settings**. A hidden game disappears
+Any of the games can be hidden from **Settings**. A hidden game disappears
 from every tab, the overlay bubble and the widget, and fires no alerts — its
 saved data is kept and restored the moment you unhide it. The widget rows
 redistribute so there is never empty space.
@@ -100,7 +129,8 @@ lib/
   services/                 notification_service, alert_scheduler,
                             widget_service, overlay_service
   providers/                Riverpod notifiers
-  screens/                  home_shell, energy, nte_weekly, pity, tasks, settings
+  screens/                  home_shell, energy, nte_weekly, pity, tasks,
+                            settings, accounts (+ account_tag)
   overlay/overlay_app.dart  floating bubble UI
 android/app/src/main/
   AndroidManifest.xml       SYSTEM_ALERT_WINDOW, specialUse FGS service,
@@ -108,7 +138,8 @@ android/app/src/main/
   kotlin/.../PullWidgetProvider.kt   native widget rendering + energy projection
   res/layout/pull_widget.xml
   res/xml/pull_widget_info.xml
-test/                       math-engine + energy-flow tests
+test/                       math-engine, account-model and app-flow tests
+  support/app_harness.dart  temp-Hive + platform-channel stubs for widget tests
 .github/workflows/          release automation
 ```
 
@@ -279,8 +310,10 @@ and the build falls back to the debug key — so contributors need no secrets.
 
 Every game constant — caps, regen rates, pity curves, pull costs, reset hours
 and daily/weekly task lists — lives in one file:
-[`lib/core/games.dart`](lib/core/games.dart). The NTE soft-pity curve and the
-City Tycoon stamina formula might be wrong - no information available when I last checked. 
+[`lib/core/games.dart`](lib/core/games.dart). Server resets there default to
+the Europe servers (Global for Re:1999); change `reset:` for other regions.
+Soft-pity curves for HSR/WuWa/Genshin/Re:1999 are the usual community models,
+not official tables.
 
 ---
 

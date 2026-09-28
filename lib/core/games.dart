@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// The four supported games.
-enum GameId { hsr, wuwa, re1999, nte }
+import 'reset_time.dart';
+
+/// The supported games. New games are appended so each game's [Enum.index]
+/// (used in notification ids) stays stable across releases.
+enum GameId { hsr, wuwa, re1999, nte, genshin }
 
 extension GameIdX on GameId {
   GameConfig get config => kGames[this]!;
@@ -9,6 +12,10 @@ extension GameIdX on GameId {
   /// Stable string key used for Hive keys and home_widget SharedPreferences.
   String get key => name;
 }
+
+/// Upper bound for a typed-in energy value. Refill items push the main pool
+/// well past its regen cap in every game, so the cap is not the limit.
+const int kEnergyInputLimit = 9999;
 
 /// Static, game-specific tuning. All rates are "minutes per 1 energy".
 @immutable
@@ -23,18 +30,24 @@ class GameConfig {
     required this.pullName,
     required this.normalCap,
     required this.normalRateMinutes,
-    this.overflowCap,
-    this.overflowRateMinutes,
+    this.capOptions = const [],
+    this.capUpgradeName,
+    this.reserveName,
+    this.reserveCap,
+    this.reserveRateMinutes,
     this.quickDeltas = const [-60, -30, -10],
     required this.pullCost,
     required this.hardPity,
     required this.softPityStart,
     required this.baseRate,
-    required this.softPityIncrement,
+    this.softPityIncrement = 0,
+    this.softPityFlatRate,
     required this.has5050,
-    required this.dailyResetHour,
+    required this.reset,
     required this.dailyTasks,
-  }) : assert((overflowCap == null) == (overflowRateMinutes == null));
+  })  : assert((reserveCap == null) == (reserveRateMinutes == null) &&
+            (reserveCap == null) == (reserveName == null)),
+        assert((softPityFlatRate == null) != (softPityIncrement == 0));
 
   final GameId id;
   final String name;
@@ -43,12 +56,26 @@ class GameConfig {
 
   // -- Energy --
   final String energyName;
+
+  /// Regen cap of the main pool: energy regenerates only below it. Refills can
+  /// push the pool above it, which pauses regeneration.
   final int normalCap;
   final int normalRateMinutes;
 
-  /// Absolute cap including overflow. null = game has no overflow reserve.
-  final int? overflowCap;
-  final int? overflowRateMinutes;
+  /// Caps an account can unlock, lowest (= [normalCap]) first, indexed by
+  /// upgrade level. Empty = the cap is fixed.
+  final List<int> capOptions;
+
+  /// What raises the cap in-game, e.g. NTE's "Dream Weaver's Knot".
+  final String? capUpgradeName;
+
+  /// Separate overflow pool that fills only while the main pool is at/above
+  /// its cap (HSR Reserved Trailblaze Power, WuWa Waveplate Crystals). It is
+  /// not spent by activities, so it is tracked apart from the main pool.
+  /// null = the game has no reserve and regeneration simply stops at the cap.
+  final String? reserveName;
+  final int? reserveCap;
+  final int? reserveRateMinutes;
 
   /// Negative quick-spend amounts offered as chips in the energy editor,
   /// matching the game's common activity costs. Largest spend first.
@@ -60,7 +87,7 @@ class GameConfig {
   final int pullCost;
   final int hardPity;
 
-  /// Pull number (since last top-rarity) at which soft pity ramp begins.
+  /// Pull number (since last top-rarity) at which soft pity begins.
   final int softPityStart;
 
   /// Base per-pull top-rarity probability before soft pity.
@@ -69,17 +96,21 @@ class GameConfig {
   /// Linear probability increase per pull once inside soft pity.
   final double softPityIncrement;
 
+  /// Flat per-pull probability once inside soft pity, for games whose rate
+  /// jumps instead of ramping (NTE's Modified Board). Replaces the ramp.
+  final double? softPityFlatRate;
+
   /// true = losing the rate-up flip guarantees the next top-rarity is featured.
   /// false = every top-rarity IS the featured character (NTE).
   final bool has5050;
 
   // -- Resets & tasks --
-  /// Server daily reset hour, expressed in the device's local time zone.
-  final int dailyResetHour;
+  /// Daily (and, where the game has one, weekly) server reset.
+  final ServerReset reset;
   final List<String> dailyTasks;
 
-  bool get hasOverflow => overflowCap != null;
-  int get absoluteCap => overflowCap ?? normalCap;
+  bool get hasReserve => reserveCap != null;
+  bool get hasCapUpgrades => capOptions.isNotEmpty;
 }
 
 final Map<GameId, GameConfig> kGames = {
@@ -93,8 +124,9 @@ final Map<GameId, GameConfig> kGames = {
     pullName: 'Warps',
     normalCap: 300,
     normalRateMinutes: 6,
-    overflowCap: 2400,
-    overflowRateMinutes: 18,
+    reserveName: 'Reserved Trailblaze Power',
+    reserveCap: 2400,
+    reserveRateMinutes: 18,
     quickDeltas: [-240, -200, -60, -40, -30, -10],
     pullCost: 160,
     hardPity: 90,
@@ -102,7 +134,7 @@ final Map<GameId, GameConfig> kGames = {
     baseRate: 0.006,
     softPityIncrement: 0.06,
     has5050: true,
-    dailyResetHour: 6,
+    reset: ServerReset(4, 1), // Europe server
     dailyTasks: [
       'Daily Training: 500 activity',
       'Claim Assignment rewards',
@@ -120,8 +152,9 @@ final Map<GameId, GameConfig> kGames = {
     pullName: 'Convenes',
     normalCap: 240,
     normalRateMinutes: 6,
-    overflowCap: 480,
-    overflowRateMinutes: 12,
+    reserveName: 'Waveplate Crystals',
+    reserveCap: 480,
+    reserveRateMinutes: 12,
     quickDeltas: [-80, -60, -40],
     pullCost: 160,
     hardPity: 80,
@@ -129,7 +162,7 @@ final Map<GameId, GameConfig> kGames = {
     baseRate: 0.008,
     softPityIncrement: 0.08,
     has5050: true,
-    dailyResetHour: 6,
+    reset: ServerReset(4, 1), // Europe server
     dailyTasks: [
       'Activity Points: 100',
       'Spend Waveplates',
@@ -147,15 +180,13 @@ final Map<GameId, GameConfig> kGames = {
     pullName: 'Summons',
     normalCap: 240,
     normalRateMinutes: 6,
-    overflowCap: null,
-    overflowRateMinutes: null,
     pullCost: 180,
     hardPity: 70,
     softPityStart: 61,
     baseRate: 0.015,
     softPityIncrement: 0.025,
     has5050: true,
-    dailyResetHour: 13,
+    reset: ServerReset(5, -5), // Global server
     dailyTasks: [
       'Spend Activity',
       'Collect Wilderness income',
@@ -168,52 +199,97 @@ final Map<GameId, GameConfig> kGames = {
     name: 'Neverness to Everness',
     shortName: 'NTE',
     color: Color(0xFFFF7FA3),
-    energyName: 'Energy',
-    currencyName: 'Premium Currency',
-    pullName: 'Wishes',
+    energyName: 'Character Pixels',
+    currencyName: 'Annulith',
+    pullName: 'Solid Dice',
     normalCap: 240,
     normalRateMinutes: 6,
-    overflowCap: null,
-    overflowRateMinutes: null,
+    // Dream Weaver's Knot (Anomaly Furniture) raises the Pixel cap per level:
+    // none = 240, Lv1..10 = 255 ... 360. Regen stays 1 per 6 minutes.
+    capOptions: [240, 255, 270, 285, 300, 310, 320, 330, 340, 350, 360],
+    capUpgradeName: "Dream Weaver's Knot",
+    // Anomaly Zone 40 (double rewards 80), Anomaly Pilgrimage 60.
+    quickDeltas: [-80, -60, -40],
     pullCost: 160,
     hardPity: 90,
-    // NTE soft-pity curve is not officially published; values are a
-    // community approximation — adjust here when confirmed.
-    softPityStart: 74,
-    baseRate: 0.01,
-    softPityIncrement: 0.06,
+    // Limited Board: 0.99% per roll; after 70 rolls without an S-class the
+    // board becomes a Modified Board at 19.59% per roll; roll 90 guarantees
+    // the featured S-class. Together that is the 1.88% consolidated rate.
+    softPityStart: 71,
+    baseRate: 0.0099,
+    softPityFlatRate: 0.1959,
     has5050: false, // S-Rank is always the featured character
-    dailyResetHour: 8,
+    // "05:00 server time" on the Europe server lands at 05:00 UTC
+    // (06:00 CET / 07:00 EET), i.e. that server runs on UTC+0.
+    reset: ServerReset(5, 0),
     dailyTasks: [
-      'Spend Pixels',
+      'Spend Character Pixels',
       'Nacupeda Pool Wish',
       "Witch's House Fortune",
       'Cafe Restock',
-      'Spend Energy',
+      'Claim Daily Quests (1,000 EXP)',
+    ],
+  ),
+  GameId.genshin: const GameConfig(
+    id: GameId.genshin,
+    name: 'Genshin Impact',
+    shortName: 'GI',
+    color: Color(0xFF8FD16A),
+    energyName: 'Original Resin',
+    currencyName: 'Primogems',
+    pullName: 'Fates',
+    normalCap: 200,
+    normalRateMinutes: 8,
+    // Domain / ley line 20, weekly boss 30 (60 after the 3 discounted runs),
+    // normal boss or Condensed Resin 40.
+    quickDeltas: [-60, -40, -30, -20],
+    pullCost: 160,
+    hardPity: 90,
+    softPityStart: 74,
+    baseRate: 0.006,
+    softPityIncrement: 0.06,
+    // Capturing Radiance nudges the real flip slightly above 50%; modelled as
+    // a plain 50/50 so the forecast stays conservative.
+    has5050: true,
+    reset: ServerReset(4, 1), // Europe server
+    dailyTasks: [
+      'Daily Commissions (4)',
+      'Claim Commission bonus (Katheryne)',
+      'Spend Original Resin',
+      'Collect & resend Expeditions',
+      'Serenitea Pot: realm currency',
     ],
   ),
 };
 
 // ===== NTE weekly system =====
 
-/// NTE weekly limits reset Monday 05:00 (device-local approximation of server).
+/// NTE weekly limits reset Monday at the daily reset time (05:00 server).
 const int kNteWeeklyResetWeekday = DateTime.monday;
-const int kNteWeeklyResetHour = 5;
 
-/// Burn-warning fires Sunday evening at this hour if weeklies are unfinished.
+/// Burn-warning fires Sunday evening at this local hour if weeklies are
+/// unfinished.
 const int kNteBurnWarningHour = 19;
 
+/// Anomaly Pilgrimage is capped at three claims (60 Character Pixels each)
+/// per week; Realm of Greed is the weekly Fons boss.
 const List<String> kNteWeeklyTasks = [
-  'Weekly Boss 1',
-  'Weekly Boss 2',
-  'Weekly Boss 3',
+  'Anomaly Pilgrimage 1/3',
+  'Anomaly Pilgrimage 2/3',
+  'Anomaly Pilgrimage 3/3',
   'Realm of Greed',
 ];
 
-/// Max City Stamina by City Tycoon level.
-/// NOTE: placeholder progression — official per-level values are not yet
-/// published; tune the base/step here once confirmed in-game.
+const int kNteMaxTycoonLevel = 45;
+
+/// Max City Stamina by City Tycoon level. The cap only changes at levels 5,
+/// 10, 16 and 23 (then stays 700 up to the level-45 max). City Stamina does
+/// not regenerate: it refills to this cap at the weekly reset.
 int nteCityStaminaForLevel(int tycoonLevel) {
-  final lvl = tycoonLevel.clamp(1, 60);
-  return 120 + lvl * 12;
+  final lvl = tycoonLevel.clamp(1, kNteMaxTycoonLevel);
+  if (lvl >= 23) return 700;
+  if (lvl >= 16) return 500;
+  if (lvl >= 10) return 350;
+  if (lvl >= 5) return 200;
+  return 100;
 }

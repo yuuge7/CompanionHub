@@ -20,14 +20,17 @@ import kotlin.math.min
  * The Flutter side (WidgetService) writes per-game values into the
  * home_widget SharedPreferences store using the keys:
  *   vis_<game>        "1" = row shown, "0" = game hidden in app settings
+ *   acct_<game>       label of the account shown; "" unless the game tracks
+ *                     several accounts (multi-account mode)
  *   cur_<game>        raw premium currency, e.g. "24800"
  *   pulls_<game>      computed total pulls (currency / cost + owned tickets)
- *   eanchor_<game>    energy anchor value
+ *   eanchor_<game>    main-pool anchor value (may exceed the cap after refills)
+ *   eres_<game>       reserve anchor value, "0" when the game has none
  *   eanchorms_<game>  anchor timestamp (epoch ms)
- *   ecap_<game>       normal energy cap
- *   erate_<game>      minutes per 1 energy up to the normal cap
- *   eocap_<game>      overflow cap, "0" when the game has none
- *   eorate_<game>     minutes per 1 overflow energy, "0" when none
+ *   ecap_<game>       the account's regen cap for the main pool
+ *   erate_<game>      minutes per 1 energy up to the cap
+ *   erescap_<game>    reserve pool cap, "0" when the game has none
+ *   eresrate_<game>   minutes per 1 reserve energy, "0" when none
  *
  * Energy is projected forward from the anchor at render time (mirrors
  * lib/core/energy_math.dart), so the 30-minute periodic update keeps the
@@ -49,6 +52,7 @@ class PullWidgetProvider : HomeWidgetProvider() {
         Row("wuwa", R.id.row_wuwa, R.id.txt_pulls_wuwa, R.id.txt_energy_wuwa, R.id.progress_wuwa, R.id.txt_eta_wuwa),
         Row("re1999", R.id.row_re1999, R.id.txt_pulls_re1999, R.id.txt_energy_re1999, R.id.progress_re1999, R.id.txt_eta_re1999),
         Row("nte", R.id.row_nte, R.id.txt_pulls_nte, R.id.txt_energy_nte, R.id.progress_nte, R.id.txt_eta_nte),
+        Row("genshin", R.id.row_genshin, R.id.txt_pulls_genshin, R.id.txt_energy_genshin, R.id.progress_genshin, R.id.txt_eta_genshin),
     )
 
     private fun SharedPreferences.int(key: String, def: Int): Int =
@@ -57,21 +61,26 @@ class PullWidgetProvider : HomeWidgetProvider() {
     private fun SharedPreferences.long(key: String, def: Long): Long =
         (getString(key, null) ?: "").toLongOrNull() ?: def
 
+    /** Projected main pool and reserve, fractional so ETAs are exact. */
+    private data class Energy(val main: Double, val reserve: Double)
+
     /**
-     * Piecewise projection: normal rate up to cap, then overflow rate.
-     * Returns the fractional energy so fill ETAs can be computed exactly.
+     * Piecewise projection: main pool at its rate up to the cap; while it is
+     * at/above the cap the separate reserve fills at its own rate. A main pool
+     * refilled above the cap does not regenerate.
      */
     private fun projectEnergy(
         anchor: Int,
+        reserveAnchor: Int,
         anchorMs: Long,
         nowMs: Long,
         cap: Int,
         rateMin: Int,
-        oCap: Int,
-        oRateMin: Int,
-    ): Double {
-        val absCap = if (oCap > 0) oCap else cap
-        var e = anchor.coerceIn(0, absCap).toDouble()
+        resCap: Int,
+        resRateMin: Int,
+    ): Energy {
+        var e = max(0, anchor).toDouble()
+        var r = if (resCap > 0) reserveAnchor.coerceIn(0, resCap).toDouble() else 0.0
         var minutesLeft = max(0L, nowMs - anchorMs) / 60000.0
 
         if (e < cap) {
@@ -84,10 +93,10 @@ class PullWidgetProvider : HomeWidgetProvider() {
                 minutesLeft = 0.0
             }
         }
-        if (oCap > 0 && minutesLeft > 0 && e < oCap && oRateMin > 0) {
-            e = min(oCap.toDouble(), e + minutesLeft / oRateMin)
+        if (resCap > 0 && resRateMin > 0 && minutesLeft > 0 && r < resCap) {
+            r = min(resCap.toDouble(), r + minutesLeft / resRateMin)
         }
-        return min(e, absCap.toDouble())
+        return Energy(e, r)
     }
 
     /** "1d 4h" / "5h 48m" / "48m" — durations are shown coarsely. */
@@ -114,25 +123,26 @@ class PullWidgetProvider : HomeWidgetProvider() {
         return SimpleDateFormat(pattern, Locale.getDefault()).format(Date(atMs))
     }
 
-    /** Countdown + wall-clock line: when the normal cap (then reserve) fills. */
+    /** Countdown + wall-clock line: when the cap (then the reserve) fills. */
     private fun etaText(
-        e: Double,
+        en: Energy,
         nowMs: Long,
         cap: Int,
         rateMin: Int,
-        oCap: Int,
-        oRateMin: Int,
-    ): String = when {
-        e < cap && rateMin > 0 -> {
-            val fullAt = nowMs + ((cap - e) * rateMin * 60000.0).toLong()
-            "full in ${fmtDuration(fullAt - nowMs)} (${fmtClock(fullAt, nowMs)})"
+        resCap: Int,
+        resRateMin: Int,
+    ): String {
+        val toCapMs =
+            if (en.main < cap && rateMin > 0) ((cap - en.main) * rateMin * 60000.0).toLong() else 0L
+        return when {
+            toCapMs > 0 -> "full in ${fmtDuration(toCapMs)} (${fmtClock(nowMs + toCapMs, nowMs)})"
+            resCap > 0 && resRateMin > 0 && en.reserve < resCap -> {
+                val fullAt = nowMs + ((resCap - en.reserve) * resRateMin * 60000.0).toLong()
+                "reserve full in ${fmtDuration(fullAt - nowMs)} (${fmtClock(fullAt, nowMs)})"
+            }
+            resCap > 0 -> "fully capped"
+            else -> "capped"
         }
-        oCap > 0 && e < oCap && oRateMin > 0 -> {
-            val fullAt = nowMs + ((oCap - e) * oRateMin * 60000.0).toLong()
-            "reserve full in ${fmtDuration(fullAt - nowMs)} (${fmtClock(fullAt, nowMs)})"
-        }
-        oCap > 0 -> "fully capped"
-        else -> "capped"
     }
 
     override fun onUpdate(
@@ -152,32 +162,34 @@ class PullWidgetProvider : HomeWidgetProvider() {
                 views.setViewVisibility(row.rowId, if (visible) View.VISIBLE else View.GONE)
                 if (!visible) continue
 
+                val account = widgetData.getString("acct_${row.game}", "") ?: ""
                 val currency = widgetData.getString("cur_${row.game}", "0") ?: "0"
                 val pulls = widgetData.getString("pulls_${row.game}", "0") ?: "0"
                 val cap = widgetData.int("ecap_${row.game}", 240)
                 val rateMin = widgetData.int("erate_${row.game}", 6)
-                val oCap = widgetData.int("eocap_${row.game}", 0)
-                val oRateMin = widgetData.int("eorate_${row.game}", 0)
-                val exact = projectEnergy(
+                val resCap = widgetData.int("erescap_${row.game}", 0)
+                val resRateMin = widgetData.int("eresrate_${row.game}", 0)
+                val en = projectEnergy(
                     anchor = widgetData.int("eanchor_${row.game}", 0),
+                    reserveAnchor = widgetData.int("eres_${row.game}", 0),
                     anchorMs = widgetData.long("eanchorms_${row.game}", now),
                     nowMs = now,
                     cap = cap,
                     rateMin = rateMin,
-                    oCap = oCap,
-                    oRateMin = oRateMin,
+                    resCap = resCap,
+                    resRateMin = resRateMin,
                 )
-                val energy = exact.toInt()
-                val normal = min(energy, cap)
-                val overflow = max(0, energy - cap)
-                val suffix = if (overflow > 0) " +$overflow" else ""
+                val main = en.main.toInt()
+                val reserve = en.reserve.toInt()
+                val suffix = if (reserve > 0) " +$reserve" else ""
 
                 views.setTextViewText(row.pullsId, "$pulls pulls")
-                views.setTextViewText(row.energyTextId, "$currency • ⚡ $normal/$cap$suffix")
-                views.setProgressBar(row.progressId, cap, normal, false)
+                val prefix = if (account.isNotEmpty()) "$account • " else ""
+                views.setTextViewText(row.energyTextId, "$prefix$currency • ⚡ $main/$cap$suffix")
+                views.setProgressBar(row.progressId, cap, min(main, cap), false)
                 views.setTextViewText(
                     row.etaId,
-                    etaText(exact, now, cap, rateMin, oCap, oRateMin),
+                    etaText(en, now, cap, rateMin, resCap, resRateMin),
                 )
             }
 

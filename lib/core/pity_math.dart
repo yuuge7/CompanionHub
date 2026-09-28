@@ -7,6 +7,8 @@ import 'games.dart';
 double ratePerPull(GameConfig g, int pullNumber) {
   if (pullNumber >= g.hardPity) return 1.0;
   if (pullNumber < g.softPityStart) return g.baseRate;
+  final flat = g.softPityFlatRate;
+  if (flat != null) return flat;
   return min(
     1.0,
     g.baseRate + (pullNumber - g.softPityStart + 1) * g.softPityIncrement,

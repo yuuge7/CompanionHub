@@ -2,92 +2,103 @@ import 'dart:math';
 
 import 'games.dart';
 
-/// Point-in-time projection of a game's energy given a stored anchor value.
+/// Point-in-time projection of one account's energy: the main pool plus, for
+/// games that have one, the separate reserve pool.
 class EnergySnapshot {
   const EnergySnapshot({
-    required this.exact,
     required this.game,
-    required this.normalCapAt,
-    required this.absoluteCapAt,
+    required this.cap,
+    required this.exact,
+    required this.exactReserve,
+    required this.capAt,
+    required this.reserveFullAt,
   });
 
   final GameConfig game;
 
-  /// Fractional energy right now (normal + overflow combined).
+  /// The account's regen cap: the game's, or an unlocked upgrade of it.
+  final int cap;
+
+  /// Fractional main-pool energy right now. Can exceed [cap] after refills,
+  /// in which case it does not regenerate.
   final double exact;
 
-  /// When the normal cap will be reached. null = already at/above it.
-  final DateTime? normalCapAt;
+  /// Fractional reserve right now (always 0 for games without one).
+  final double exactReserve;
 
-  /// When the absolute cap (overflow cap, or normal cap for games without
-  /// overflow) will be reached. null = already there.
-  final DateTime? absoluteCapAt;
+  /// When the main pool reaches [cap]. null = already at/above it.
+  final DateTime? capAt;
 
-  int get current => min(exact.floor(), game.absoluteCap);
-  int get normalPortion => min(current, game.normalCap);
-  int get overflowPortion => max(0, current - game.normalCap);
-  bool get atNormalCap => exact >= game.normalCap;
-  bool get atAbsoluteCap => exact >= game.absoluteCap;
-  double get normalFraction => (exact / game.normalCap).clamp(0.0, 1.0);
-  double get overflowFraction => game.hasOverflow
-      ? ((exact - game.normalCap) / (game.absoluteCap - game.normalCap))
-          .clamp(0.0, 1.0)
+  /// When the reserve fills up. null = no reserve, or it is already full.
+  final DateTime? reserveFullAt;
+
+  int get current => exact.floor();
+  int get reserve => exactReserve.floor();
+  bool get atCap => exact >= cap;
+  bool get overfilled => exact > cap;
+  bool get reserveFull =>
+      game.hasReserve && exactReserve >= game.reserveCap!;
+
+  /// Nothing regenerates any more, so regen time is being wasted.
+  bool get wasting => atCap && (!game.hasReserve || reserveFull);
+
+  double get fraction => (exact / cap).clamp(0.0, 1.0);
+  double get reserveFraction => game.hasReserve
+      ? (exactReserve / game.reserveCap!).clamp(0.0, 1.0)
       : 0.0;
 }
 
-/// Projects energy forward from ([anchorValue] at [anchorTime]) to [now].
+/// Projects an account's energy forward from its anchor ([energy] in the main
+/// pool and [reserve] in the reserve pool at [anchorTime]) to [now].
 ///
 /// Regeneration is piecewise:
-///   phase 1: 1 energy per [normalRateMinutes] until normalCap,
-///   phase 2: 1 energy per [overflowRateMinutes] until overflowCap (if any).
+///   phase 1: main pool +1 per [GameConfig.normalRateMinutes] until [cap]
+///            (the game's normal cap unless the account unlocked a higher one),
+///   phase 2: while the main pool is at/above its cap, the reserve (if any)
+///            +1 per [GameConfig.reserveRateMinutes] until its own cap.
+/// A main pool refilled above its cap stays put; only the reserve grows.
 EnergySnapshot projectEnergy(
-  GameConfig g,
-  int anchorValue,
-  DateTime anchorTime,
-  DateTime now,
-) {
-  double e = anchorValue.clamp(0, g.absoluteCap).toDouble();
+  GameConfig g, {
+  required int energy,
+  int reserve = 0,
+  int? cap,
+  required DateTime anchorTime,
+  required DateTime now,
+}) {
+  final c = cap ?? g.normalCap;
+  final rCap = g.reserveCap;
+  double e = max(0, energy).toDouble();
+  double r = rCap == null ? 0 : reserve.clamp(0, rCap).toDouble();
   double minutesLeft =
       max(0, now.difference(anchorTime).inMilliseconds) / 60000.0;
 
-  if (e < g.normalCap) {
-    final minutesToCap = (g.normalCap - e) * g.normalRateMinutes;
+  if (e < c) {
+    final minutesToCap = (c - e) * g.normalRateMinutes;
     if (minutesLeft >= minutesToCap) {
       minutesLeft -= minutesToCap;
-      e = g.normalCap.toDouble();
+      e = c.toDouble();
     } else {
       e += minutesLeft / g.normalRateMinutes;
       minutesLeft = 0;
     }
   }
 
-  final oCap = g.overflowCap;
-  if (oCap != null && minutesLeft > 0 && e < oCap) {
-    e = min(oCap.toDouble(), e + minutesLeft / g.overflowRateMinutes!);
+  if (rCap != null && minutesLeft > 0 && r < rCap) {
+    r = min(rCap.toDouble(), r + minutesLeft / g.reserveRateMinutes!);
   }
 
+  final minutesToCap = e >= c ? 0.0 : (c - e) * g.normalRateMinutes;
   return EnergySnapshot(
-    exact: e,
     game: g,
-    normalCapAt: e >= g.normalCap
+    cap: c,
+    exact: e,
+    exactReserve: r,
+    capAt: e >= c ? null : now.add(_minutes(minutesToCap)),
+    reserveFullAt: rCap == null || r >= rCap
         ? null
-        : now.add(_minutes((g.normalCap - e) * g.normalRateMinutes)),
-    absoluteCapAt: e >= g.absoluteCap ? null : now.add(_minutes(_minutesToAbsoluteCap(g, e))),
+        : now.add(
+            _minutes(minutesToCap + (rCap - r) * g.reserveRateMinutes!)),
   );
-}
-
-double _minutesToAbsoluteCap(GameConfig g, double e) {
-  double mins = 0;
-  double t = e;
-  if (t < g.normalCap) {
-    mins += (g.normalCap - t) * g.normalRateMinutes;
-    t = g.normalCap.toDouble();
-  }
-  final oCap = g.overflowCap;
-  if (oCap != null && t < oCap) {
-    mins += (oCap - t) * g.overflowRateMinutes!;
-  }
-  return mins;
 }
 
 Duration _minutes(double m) => Duration(milliseconds: (m * 60000).ceil());

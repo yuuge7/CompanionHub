@@ -1,49 +1,15 @@
-import 'dart:io';
-
-import 'package:companion_hub/data/store.dart';
+import 'package:companion_hub/core/games.dart';
 import 'package:companion_hub/main.dart';
-import 'package:companion_hub/services/notification_service.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
-class _FakePathProvider extends PathProviderPlatform {
-  _FakePathProvider(this.path);
-  final String path;
-
-  @override
-  Future<String?> getApplicationDocumentsPath() async => path;
-}
+import 'support/app_harness.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late Directory tmp;
-
-  setUpAll(() async {
-    tmp = await Directory.systemTemp.createTemp('companion_hub_test');
-    PathProviderPlatform.instance = _FakePathProvider(tmp.path);
-
-    final messenger =
-        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(
-      const MethodChannel('dexterous.com/flutter/local_notifications'),
-      (call) async => call.method == 'initialize' ? true : null,
-    );
-    messenger.setMockMethodCallHandler(
-      const MethodChannel('x-slayer/overlay_channel'),
-      (call) async => false,
-    );
-    messenger.setMockMethodCallHandler(
-      const MethodChannel('home_widget'),
-      (call) async => true,
-    );
-
-    await Store.init();
-    await NotificationService.instance.init();
-  });
+  setUpAll(initAppHarness);
 
   testWidgets('setting energy updates the card and it regenerates',
       (tester) async {
@@ -52,14 +18,14 @@ void main() {
     await tester.pumpWidget(const ProviderScope(child: CompanionHubApp()));
     await tester.pump();
 
-    // All four games start at 0.
-    expect(find.text('0'), findsNWidgets(4));
+    // Every game starts at 0.
+    expect(find.text('0'), findsNWidgets(GameId.values.length));
 
     // Open the HSR editor.
     await tester.tap(find.text('Honkai: Star Rail'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextField), '180');
+    await tester.enterText(find.byKey(const Key('energy-main')), '180');
     await tester.tap(find.text('Save'));
     // Hive writes are real file I/O: alternate real-async waits (I/O
     // completion) with fake-async pumps (microtask/frame flush) until the

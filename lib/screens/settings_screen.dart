@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/games.dart';
+import '../data/models.dart';
 import '../providers/providers.dart';
 import '../services/notification_service.dart';
+import 'accounts_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -12,6 +14,18 @@ class SettingsScreen extends ConsumerWidget {
     final h = (minutesOfDay ~/ 60).toString().padLeft(2, '0');
     final m = (minutesOfDay % 60).toString().padLeft(2, '0');
     return '$h:$m';
+  }
+
+  String _accountsSummary(AppSettings settings) {
+    final extras = settings.allAccounts.where((a) => !a.isMain).length;
+    if (!settings.multiAccountEnabled) {
+      return extras == 0
+          ? 'Turn on multi-account mode first'
+          : '$extras extra account${extras == 1 ? '' : 's'} paused';
+    }
+    return extras == 0
+        ? 'Add a second account for any game'
+        : '$extras extra account${extras == 1 ? '' : 's'}';
   }
 
   Future<void> _pickTime(
@@ -75,6 +89,33 @@ class SettingsScreen extends ConsumerWidget {
                     notifier.update(settings.copyWith(hiddenGames: hidden));
                   },
                 ),
+            ],
+          ),
+        ),
+
+        // ---- Multi-account ----
+        Card(
+          child: Column(
+            children: [
+              SwitchListTile(
+                secondary: const Icon(Icons.people_alt_outlined),
+                title: const Text('Multi-account mode'),
+                subtitle: const Text(
+                    'Track several accounts per game, each with its own '
+                    'energy, pity plan, dailies and weeklies'),
+                value: settings.multiAccountEnabled,
+                onChanged: (v) => notifier
+                    .update(settings.copyWith(multiAccountEnabled: v)),
+              ),
+              ListTile(
+                enabled: settings.multiAccountEnabled,
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: const Text('Manage accounts'),
+                subtitle: Text(_accountsSummary(settings)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const AccountsScreen())),
+              ),
             ],
           ),
         ),
@@ -203,9 +244,10 @@ class SettingsScreen extends ConsumerWidget {
                   '100% offline: all data lives on this device. Timers, '
                   'forecasts and alarms are computed locally — no account, '
                   'no network, no Firebase.\n\n'
-                  'Server resets are assumed at each game\'s reset hour in '
-                  'your device time zone (HSR/WuWa 06:00, NTE 08:00, '
-                  'Re:1999 13:00). NTE weeklies reset Monday 05:00.',
+                  'Resets follow each game\'s server clock and are shown in '
+                  'your time zone, daylight saving included: '
+                  '${[for (final g in GameId.values) '${g.config.shortName} ${g.config.reset.label}'].join(', ')}. '
+                  'NTE weeklies reset Monday at the same time.',
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline),
                 ),

@@ -6,6 +6,7 @@ import 'package:flutter_overlay_window/flutter_overlay_window.dart';
 import '../core/games.dart';
 import '../core/reset_time.dart';
 import '../core/theme.dart';
+import '../data/models.dart';
 import '../data/store.dart';
 import '../services/overlay_service.dart';
 
@@ -36,15 +37,20 @@ class _OverlayBubble extends StatefulWidget {
 
 class _OverlayBubbleState extends State<_OverlayBubble> {
   bool _expanded = false;
-  GameId _game = GameId.nte;
+  Account _account = const Account(GameId.nte, Account.mainId);
   Timer? _ticker;
+
+  /// True while Hive boxes are closed and reopened; builds must not read the
+  /// store in that window.
+  bool _reloading = false;
 
   @override
   void initState() {
     super.initState();
     // Reset countdown + auto-uncheck at server reset need periodic rebuilds.
-    _ticker = Timer.periodic(
-        const Duration(seconds: 30), (_) => setState(() {}));
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!_reloading) setState(() {});
+    });
   }
 
   @override
@@ -54,9 +60,17 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
   }
 
   Future<void> _setExpanded(bool expanded) async {
-    // Pick up hidden-game changes the main app may have written meanwhile
-    // (each engine holds its own Hive box cache).
-    if (expanded) await Store.reloadSettings();
+    // Pick up hidden-game / account changes and task ticks the main app may
+    // have written meanwhile (each engine holds its own Hive box cache).
+    if (expanded) {
+      _reloading = true;
+      try {
+        await Store.reloadSettings();
+        await Store.reloadTasks();
+      } finally {
+        _reloading = false;
+      }
+    }
     // NOTE: unlike showOverlay (raw pixels), the plugin's resizeOverlay
     // applies its own dp->px conversion, so pass logical dp values here.
     // Multiplying by devicePixelRatio double-scales: a 300dp panel becomes
@@ -77,15 +91,16 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
     if (mounted) setState(() => _expanded = expanded);
   }
 
-  bool _isChecked(GameId g, int index, DateTime now) {
-    final ms = Store.taskCheckedAtMs(g, index);
+  bool _isChecked(Account a, int index, DateTime now) {
+    final ms = Store.taskCheckedAtMs(a, index);
     if (ms == null) return false;
     return ms >=
-        lastDailyReset(g.config.dailyResetHour, now).millisecondsSinceEpoch;
+        lastDailyReset(a.game.config.reset, now)
+            .millisecondsSinceEpoch;
   }
 
-  Future<void> _toggle(GameId g, int index, bool checked) async {
-    await Store.setTaskChecked(g, index, checked);
+  Future<void> _toggle(Account a, int index, bool checked) async {
+    await Store.setTaskChecked(a, index, checked);
     // Tell the main engine (if alive) to reload its task state.
     await FlutterOverlayWindow.shareData('tasks_changed');
     if (mounted) setState(() {});
@@ -93,22 +108,29 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
 
   @override
   Widget build(BuildContext context) {
-    // Skip games hidden in Settings; fall back if the current one vanished.
-    final games = Store.settings().visibleGames;
-    if (games.isNotEmpty && !games.contains(_game)) _game = games.first;
+    // Skip hidden games / inactive accounts; fall back if the current one
+    // vanished.
+    final settings = Store.settings();
+    final accounts = settings.visibleAccounts;
+    if (accounts.isNotEmpty && !accounts.contains(_account)) {
+      _account = accounts.first;
+    }
     return Material(
       color: Colors.transparent,
-      child: _expanded ? _buildChecklist(context, games) : _buildBubble(context),
+      child: _expanded
+          ? _buildChecklist(context, settings, accounts)
+          : _buildBubble(context),
     );
   }
 
   // ---- Collapsed: small semi-transparent bubble ----
   Widget _buildBubble(BuildContext context) {
     final now = DateTime.now();
-    final total = _game.config.dailyTasks.length;
+    final cfg = _account.game.config;
+    final total = cfg.dailyTasks.length;
     final done = [
       for (var i = 0; i < total; i++)
-        if (_isChecked(_game, i, now)) i
+        if (_isChecked(_account, i, now)) i
     ].length;
 
     return GestureDetector(
@@ -118,16 +140,16 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: const Color(0xEE13141A),
-          border: Border.all(color: _game.config.color.withValues(alpha: .7)),
+          border: Border.all(color: cfg.color.withValues(alpha: .7)),
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.checklist, color: _game.config.color, size: 22),
+            Icon(Icons.checklist, color: cfg.color, size: 22),
             Text(
               '$done/$total',
               style: TextStyle(
-                color: _game.config.color,
+                color: cfg.color,
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
               ),
@@ -139,10 +161,14 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
   }
 
   // ---- Expanded: quick daily checklist ----
-  Widget _buildChecklist(BuildContext context, List<GameId> games) {
+  Widget _buildChecklist(
+    BuildContext context,
+    AppSettings settings,
+    List<Account> accounts,
+  ) {
     final now = DateTime.now();
-    final cfg = _game.config;
-    final resetIn = nextDailyReset(cfg.dailyResetHour, now).difference(now);
+    final cfg = _account.game.config;
+    final resetIn = nextDailyReset(cfg.reset, now).difference(now);
 
     return Container(
       decoration: BoxDecoration(
@@ -161,17 +187,19 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      for (final g in games)
+                      for (final a in accounts)
                         Padding(
                           padding: const EdgeInsets.only(right: 6),
                           child: ChoiceChip(
-                            label: Text(g.config.shortName,
+                            label: Text(
+                                settings.withAccountLabel(
+                                    a.game.config.shortName, a.game, a.id),
                                 style: const TextStyle(fontSize: 11)),
-                            selected: _game == g,
+                            selected: _account == a,
                             selectedColor:
-                                g.config.color.withValues(alpha: .25),
+                                a.game.config.color.withValues(alpha: .25),
                             visualDensity: VisualDensity.compact,
-                            onSelected: (_) => setState(() => _game = g),
+                            onSelected: (_) => setState(() => _account = a),
                           ),
                         ),
                     ],
@@ -196,10 +224,10 @@ class _OverlayBubbleState extends State<_OverlayBubble> {
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     activeColor: cfg.color,
-                    value: _isChecked(_game, i, now),
+                    value: _isChecked(_account, i, now),
                     title: Text(cfg.dailyTasks[i],
                         style: const TextStyle(fontSize: 13)),
-                    onChanged: (v) => _toggle(_game, i, v ?? false),
+                    onChanged: (v) => _toggle(_account, i, v ?? false),
                   ),
               ],
             ),

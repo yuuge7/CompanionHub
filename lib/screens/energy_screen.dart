@@ -8,6 +8,7 @@ import '../core/games.dart';
 import '../core/reset_time.dart';
 import '../data/models.dart';
 import '../providers/providers.dart';
+import 'account_tag.dart';
 import 'nte_weekly_screen.dart';
 
 /// Module A: Universal Energy & Overflow Timer.
@@ -17,48 +18,62 @@ class EnergyScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final now = ref.watch(clockProvider).value ?? DateTime.now();
-    final states = ref.watch(energyProvider);
-    final games = ref.watch(visibleGamesProvider);
+    ref.watch(energyProvider); // rebuild when any anchor changes
+    final energy = ref.read(energyProvider.notifier);
+    final settings = ref.watch(settingsProvider);
 
     return ListView(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
       children: [
-        for (final g in games)
-          _EnergyCard(game: g, state: states[g]!, now: now),
+        for (final a in ref.watch(visibleAccountsProvider))
+          _EnergyCard(
+            account: a,
+            showAccount: settings.showsAccountLabels(a.game),
+            state: energy.of(a),
+            now: now,
+          ),
       ],
     );
   }
 }
 
 class _EnergyCard extends ConsumerWidget {
-  const _EnergyCard({required this.game, required this.state, required this.now});
+  const _EnergyCard({
+    required this.account,
+    required this.showAccount,
+    required this.state,
+    required this.now,
+  });
 
-  final GameId game;
+  final Account account;
+  final bool showAccount;
   final EnergyState state;
   final DateTime now;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cfg = game.config;
-    final snap = projectEnergy(cfg, state.energy, state.updatedAt, now);
+    final cfg = account.game.config;
+    final snap = state.projectAt(now);
     final theme = Theme.of(context);
 
     String capLine;
-    if (snap.atAbsoluteCap) {
-      capLine = cfg.hasOverflow
-          ? 'Fully capped — overflow reserve is full!'
-          : 'Capped — energy is being wasted!';
-    } else if (snap.atNormalCap) {
-      capLine =
-          'At cap — overflow full ${_fmtEta(snap.absoluteCapAt!, now)}';
+    if (snap.wasting) {
+      capLine = cfg.hasReserve
+          ? 'Fully capped — ${cfg.reserveName} is full!'
+          : snap.overfilled
+              ? 'Above cap — regeneration paused'
+              : 'Capped — energy is being wasted!';
+    } else if (snap.atCap) {
+      capLine = '${snap.overfilled ? 'Above cap' : 'At cap'} — reserve full '
+          '${_fmtEta(snap.reserveFullAt!, now)}';
     } else {
-      capLine = 'Full ${_fmtEta(snap.normalCapAt!, now)}';
+      capLine = 'Full ${_fmtEta(snap.capAt!, now)}';
     }
 
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => _openEditor(context, ref, snap.current),
+        onTap: () => _openEditor(context, snap),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -72,17 +87,20 @@ class _EnergyCard extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(cfg.name,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600)),
+                    child: GameAccountTitle(
+                      account: account,
+                      showAccount: showAccount,
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
                   ),
-                  if (game == GameId.nte)
+                  if (account.game == GameId.nte)
                     IconButton(
                       tooltip: 'NTE Weekly Dashboard',
                       icon: const Icon(Icons.event_repeat),
                       onPressed: () => Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (_) => const NteWeeklyScreen()),
+                            builder: (_) => NteWeeklyScreen(account: account)),
                       ),
                     ),
                   IconButton(
@@ -99,7 +117,7 @@ class _EnergyCard extends ConsumerWidget {
                     ),
                     onPressed: () => ref
                         .read(energyProvider.notifier)
-                        .setNotify(game, !state.notifyCap),
+                        .setNotify(account, !state.notifyCap),
                   ),
                 ],
               ),
@@ -107,19 +125,19 @@ class _EnergyCard extends ConsumerWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text('${snap.normalPortion}',
+                  Text('${snap.current}',
                       style: theme.textTheme.displaySmall
                           ?.copyWith(fontWeight: FontWeight.w700)),
-                  Text(' / ${cfg.normalCap} ${cfg.energyName}',
+                  Text(' / ${snap.cap} ${cfg.energyName}',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: theme.colorScheme.outline)),
                   const Spacer(),
-                  if (cfg.hasOverflow && snap.overflowPortion > 0)
+                  if (cfg.hasReserve && snap.reserve > 0)
                     Chip(
                       visualDensity: VisualDensity.compact,
                       side: BorderSide(color: cfg.color.withValues(alpha: .4)),
                       backgroundColor: Colors.transparent,
-                      label: Text('+${snap.overflowPortion} reserve',
+                      label: Text('+${snap.reserve} reserve',
                           style: TextStyle(color: cfg.color, fontSize: 12)),
                     ),
                 ],
@@ -128,18 +146,18 @@ class _EnergyCard extends ConsumerWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  value: snap.normalFraction,
+                  value: snap.fraction,
                   minHeight: 8,
                   color: cfg.color,
                   backgroundColor: theme.colorScheme.surfaceContainerHighest,
                 ),
               ),
-              if (cfg.hasOverflow) ...[
+              if (cfg.hasReserve) ...[
                 const SizedBox(height: 4),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(2),
                   child: LinearProgressIndicator(
-                    value: snap.overflowFraction,
+                    value: snap.reserveFraction,
                     minHeight: 3,
                     color: cfg.color.withValues(alpha: .45),
                     backgroundColor:
@@ -179,59 +197,75 @@ class _EnergyCard extends ConsumerWidget {
     return 'at $time (in ${formatDuration(at.difference(now))})';
   }
 
-  void _openEditor(BuildContext context, WidgetRef ref, int current) {
+  void _openEditor(BuildContext context, EnergySnapshot snap) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _EnergyEditor(game: game, current: current),
+      builder: (_) => _EnergyEditor(account: account, snapshot: snap),
     );
   }
 }
 
 class _EnergyEditor extends ConsumerStatefulWidget {
-  const _EnergyEditor({required this.game, required this.current});
+  const _EnergyEditor({required this.account, required this.snapshot});
 
-  final GameId game;
-  final int current;
+  final Account account;
+
+  /// Projection at the moment the editor opened; pre-fills the fields.
+  final EnergySnapshot snapshot;
 
   @override
   ConsumerState<_EnergyEditor> createState() => _EnergyEditorState();
 }
 
 class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
-  late final TextEditingController _controller;
+  late final TextEditingController _main;
+  late final TextEditingController _reserve;
+  late int _cap;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: '${widget.current}');
+    _main = TextEditingController(text: '${widget.snapshot.current}');
+    _reserve = TextEditingController(text: '${widget.snapshot.reserve}');
+    _cap = widget.snapshot.cap;
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _main.dispose();
+    _reserve.dispose();
     super.dispose();
   }
 
+  // Some numeric keyboards emit grouping separators or minus signs;
+  // strip everything but digits so the save can't silently no-op.
+  static int? _parse(TextEditingController c) =>
+      int.tryParse(c.text.replaceAll(RegExp(r'[^0-9]'), ''));
+
   Future<void> _save() async {
-    // Some numeric keyboards emit grouping separators or minus signs;
-    // strip everything but digits so the save can't silently no-op.
-    final digits = _controller.text.replaceAll(RegExp(r'[^0-9]'), '');
-    final value = int.tryParse(digits);
-    if (value == null) {
+    final cfg = widget.account.game.config;
+    final main = _parse(_main);
+    final reserve = cfg.hasReserve ? _parse(_reserve) : null;
+    if (main == null || (cfg.hasReserve && reserve == null)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a number first.')),
       );
       return;
     }
-    await ref.read(energyProvider.notifier).setEnergy(widget.game, value);
+    await ref.read(energyProvider.notifier).setEnergy(
+          widget.account,
+          energy: main,
+          reserve: reserve,
+          cap: cfg.hasCapUpgrades ? _cap : null,
+        );
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final cfg = widget.game.config;
+    final cfg = widget.account.game.config;
     return Padding(
       padding: EdgeInsets.only(
         left: 20,
@@ -242,11 +276,15 @@ class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Update ${cfg.energyName}',
+          Text(
+              ref.watch(settingsProvider).withAccountLabel(
+                  'Update ${cfg.energyName}',
+                  widget.account.game,
+                  widget.account.id),
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
           Text(
-            'Enter the value shown in-game right now.',
+            'Enter the values shown in-game right now.',
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
@@ -254,15 +292,15 @@ class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
           ),
           const SizedBox(height: 16),
           TextField(
-            controller: _controller,
+            key: const Key('energy-main'),
+            controller: _main,
             autofocus: true,
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             onSubmitted: (_) => _save(),
             decoration: InputDecoration(
-              labelText:
-                  '${cfg.energyName} (0–${cfg.absoluteCap})',
-              suffixText: '/ ${cfg.normalCap}',
+              labelText: cfg.energyName,
+              suffixText: '/ $_cap',
             ),
           ),
           const SizedBox(height: 12),
@@ -274,21 +312,60 @@ class _EnergyEditorState extends ConsumerState<_EnergyEditor> {
                 ActionChip(
                   label: Text('$delta'),
                   onPressed: () {
-                    final v = int.tryParse(_controller.text) ?? 0;
-                    _controller.text =
-                        '${(v + delta).clamp(0, cfg.absoluteCap)}';
+                    final v = _parse(_main) ?? 0;
+                    _main.text = '${(v + delta).clamp(0, kEnergyInputLimit)}';
                   },
                 ),
               ActionChip(
                 label: const Text('0'),
-                onPressed: () => _controller.text = '0',
+                onPressed: () => _main.text = '0',
               ),
               ActionChip(
-                label: Text('Full (${cfg.normalCap})'),
-                onPressed: () => _controller.text = '${cfg.normalCap}',
+                label: Text('Full ($_cap)'),
+                onPressed: () => _main.text = '$_cap',
               ),
             ],
           ),
+          if (cfg.hasReserve) ...[
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('energy-reserve'),
+              controller: _reserve,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onSubmitted: (_) => _save(),
+              decoration: InputDecoration(
+                labelText: cfg.reserveName,
+                suffixText: '/ ${cfg.reserveCap}',
+              ),
+            ),
+          ],
+          if (cfg.hasCapUpgrades) ...[
+            const SizedBox(height: 16),
+            InputDecorator(
+              decoration: InputDecoration(
+                labelText: cfg.capUpgradeName,
+                helperText: 'Raises the ${cfg.energyName} cap',
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<int>(
+                  value: _cap,
+                  isDense: true,
+                  isExpanded: true,
+                  items: [
+                    for (var lvl = 0; lvl < cfg.capOptions.length; lvl++)
+                      DropdownMenuItem(
+                        value: cfg.capOptions[lvl],
+                        child: Text(lvl == 0
+                            ? 'Not placed (cap ${cfg.capOptions[lvl]})'
+                            : 'Lv $lvl (cap ${cfg.capOptions[lvl]})'),
+                      ),
+                  ],
+                  onChanged: (v) => setState(() => _cap = v ?? _cap),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,

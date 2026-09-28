@@ -1,6 +1,5 @@
 import 'package:hive_flutter/hive_flutter.dart';
 
-import '../core/games.dart';
 import 'models.dart';
 
 /// Thin Hive wrapper. Everything is stored as plain JSON maps so no code
@@ -39,42 +38,42 @@ class Store {
   }
 
   // ---- Energy ----
-  static EnergyState energy(GameId g) {
-    final raw = _energy.get(g.key);
-    if (raw is Map) return EnergyState.fromJson(g, raw);
-    return EnergyState.initial(g);
+  static EnergyState energy(Account a) {
+    final raw = _energy.get(a.key);
+    if (raw is Map) return EnergyState.fromJson(a, raw);
+    return EnergyState.initial(a);
   }
 
   static Future<void> saveEnergy(EnergyState s) async {
-    await _energy.put(s.game.key, s.toJson());
+    await _energy.put(s.key, s.toJson());
     await _energy.flush();
   }
 
   // ---- Pity plans ----
-  static PityPlan pityPlan(GameId g) {
-    final raw = _pity.get(g.key);
-    if (raw is Map) return PityPlan.fromJson(g, raw);
-    return PityPlan(game: g);
+  static PityPlan pityPlan(Account a) {
+    final raw = _pity.get(a.key);
+    if (raw is Map) return PityPlan.fromJson(a, raw);
+    return PityPlan.initial(a);
   }
 
   static Future<void> savePityPlan(PityPlan p) async {
-    await _pity.put(p.game.key, p.toJson());
+    await _pity.put(p.key, p.toJson());
     await _pity.flush();
   }
 
-  // ---- Daily tasks: key "<game>:<index>" -> checkedAt epoch ms ----
-  static String _taskKey(GameId g, int index) => '${g.key}:$index';
+  // ---- Daily tasks: key "<account key>:<index>" -> checkedAt epoch ms ----
+  static String taskKey(Account a, int index) => '${a.key}:$index';
 
-  static int? taskCheckedAtMs(GameId g, int index) {
-    final v = _tasks.get(_taskKey(g, index));
+  static int? taskCheckedAtMs(Account a, int index) {
+    final v = _tasks.get(taskKey(a, index));
     return v is int ? v : null;
   }
 
-  static Future<void> setTaskChecked(GameId g, int index, bool checked) async {
+  static Future<void> setTaskChecked(Account a, int index, bool checked) async {
     if (checked) {
-      await _tasks.put(_taskKey(g, index), DateTime.now().millisecondsSinceEpoch);
+      await _tasks.put(taskKey(a, index), DateTime.now().millisecondsSinceEpoch);
     } else {
-      await _tasks.delete(_taskKey(g, index));
+      await _tasks.delete(taskKey(a, index));
     }
     await _tasks.flush();
   }
@@ -92,15 +91,33 @@ class Store {
     _settings = await Hive.openBox(_settingsBox);
   }
 
-  // ---- NTE weekly ----
-  static NteWeeklyState nteWeekly() {
-    final raw = _nte.get('weekly');
+  // ---- NTE weekly: key "weekly" (main account) / "weekly@<id>" ----
+  static String _nteKey(Account a) =>
+      a.isMain ? 'weekly' : 'weekly@${a.id}';
+
+  static NteWeeklyState nteWeekly(Account a) {
+    final raw = _nte.get(_nteKey(a));
     if (raw is Map) return NteWeeklyState.fromJson(raw);
     return NteWeeklyState.initial();
   }
 
-  static Future<void> saveNteWeekly(NteWeeklyState s) async {
-    await _nte.put('weekly', s.toJson());
+  static Future<void> saveNteWeekly(Account a, NteWeeklyState s) async {
+    await _nte.put(_nteKey(a), s.toJson());
+    await _nte.flush();
+  }
+
+  // ---- Account removal ----
+  /// Wipes everything stored for [a] so a later account reusing its id
+  /// starts from a clean slate.
+  static Future<void> deleteAccountData(Account a) async {
+    await _energy.delete(a.key);
+    await _energy.flush();
+    await _pity.delete(a.key);
+    await _pity.flush();
+    await _tasks.deleteAll(
+        [for (final k in _tasks.keys) if ('$k'.startsWith('${a.key}:')) k]);
+    await _tasks.flush();
+    await _nte.delete(_nteKey(a));
     await _nte.flush();
   }
 

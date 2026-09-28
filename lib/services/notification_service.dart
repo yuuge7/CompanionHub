@@ -15,12 +15,16 @@ class NotificationService {
 
   bool _initialized = false;
 
-  // Notification id ranges (one per game where applicable):
+  // Notification id ranges (one per game + account where applicable):
   //   100 + game.index : energy cap warning
   //   200 + game.index : silent overnight summary
-  //   300              : NTE weekly burn warning
-  static int capWarnId(int gameIndex) => 100 + gameIndex;
-  static int summaryId(int gameIndex) => 200 + gameIndex;
+  //   300              : NTE weekly burn warning (all accounts combined)
+  // Extra accounts offset the per-game ids by 1000 * accountId; the main
+  // account (id 0) keeps the ids alerts had before multi-account mode existed.
+  static int capWarnId(int gameIndex, [int accountId = 0]) =>
+      100 + gameIndex + accountId * 1000;
+  static int summaryId(int gameIndex, [int accountId = 0]) =>
+      200 + gameIndex + accountId * 1000;
   static const int burnWarningId = 300;
 
   Future<void> init() async {

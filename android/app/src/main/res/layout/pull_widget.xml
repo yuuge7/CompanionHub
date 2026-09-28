@@ -254,4 +254,66 @@
             android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
+
+    <!-- Genshin -->
+    <LinearLayout
+        android:id="@+id/row_genshin"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="52dp"
+            android:layout_height="wrap_content"
+            android:text="GI"
+            android:textColor="#8FD16A"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/txt_energy_genshin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="0 • ⚡ 0/200"
+                android:textColor="#9AA0AE"
+                android:textSize="11sp" />
+
+            <ProgressBar
+                android:id="@+id/progress_genshin"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:max="200"
+                android:progress="0"
+                android:progressTint="#8FD16A" />
+
+            <TextView
+                android:id="@+id/txt_eta_genshin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="full in —"
+                android:textColor="#7C8394"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txt_pulls_genshin"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="0 pulls"
+            android:textColor="#ECEBF3"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 </LinearLayout>
