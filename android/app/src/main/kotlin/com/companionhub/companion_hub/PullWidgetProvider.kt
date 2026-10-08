@@ -20,8 +20,8 @@ import kotlin.math.min
  * The Flutter side (WidgetService) writes per-game values into the
  * home_widget SharedPreferences store using the keys:
  *   vis_<game>        "1" = row shown, "0" = game hidden in app settings
- *   acct_<game>       label of the account shown; "" unless the game tracks
- *                     several accounts (multi-account mode)
+ *   acct_<game>       label of the account shown ("Main" until renamed); ""
+ *                     only in data written by older app versions
  *   cur_<game>        raw premium currency, e.g. "24800"
  *   pulls_<game>      computed total pulls (currency / cost + owned tickets)
  *   eanchor_<game>    main-pool anchor value (may exceed the cap after refills)
@@ -53,6 +53,7 @@ class PullWidgetProvider : HomeWidgetProvider() {
         Row("re1999", R.id.row_re1999, R.id.txt_pulls_re1999, R.id.txt_energy_re1999, R.id.progress_re1999, R.id.txt_eta_re1999),
         Row("nte", R.id.row_nte, R.id.txt_pulls_nte, R.id.txt_energy_nte, R.id.progress_nte, R.id.txt_eta_nte),
         Row("genshin", R.id.row_genshin, R.id.txt_pulls_genshin, R.id.txt_energy_genshin, R.id.progress_genshin, R.id.txt_eta_genshin),
+        Row("zzz", R.id.row_zzz, R.id.txt_pulls_zzz, R.id.txt_energy_zzz, R.id.progress_zzz, R.id.txt_eta_zzz),
     )
 
     private fun SharedPreferences.int(key: String, def: Int): Int =

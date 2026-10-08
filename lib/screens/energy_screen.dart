@@ -20,33 +20,50 @@ class EnergyScreen extends ConsumerWidget {
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     ref.watch(energyProvider); // rebuild when any anchor changes
     final energy = ref.read(energyProvider.notifier);
-    final settings = ref.watch(settingsProvider);
+    final accounts = ref.watch(visibleAccountsProvider);
 
-    return ListView(
+    return ReorderableListView.builder(
       padding: const EdgeInsets.only(top: 8, bottom: 24),
-      children: [
-        for (final a in ref.watch(visibleAccountsProvider))
-          _EnergyCard(
-            account: a,
-            showAccount: settings.showsAccountLabels(a.game),
-            state: energy.of(a),
-            now: now,
-          ),
-      ],
+      // Cards bring their own drag handle and also lift on a long press.
+      buildDefaultDragHandles: false,
+      // The lifted card grows a little instead of casting the default
+      // shadow, which would outline the card's margin too.
+      proxyDecorator: (child, _, animation) => ScaleTransition(
+        scale: animation.drive(Tween(begin: 1, end: 1.03)),
+        child: Material(type: MaterialType.transparency, child: child),
+      ),
+      itemCount: accounts.length,
+      // onReorderItem replaces this from Flutter 3.47 on, but the release
+      // workflow still builds with 3.44, which doesn't have it.
+      // ignore: deprecated_member_use
+      onReorder: (from, to) => ref
+          .read(settingsProvider.notifier)
+          .moveAccount(from, to > from ? to - 1 : to),
+      itemBuilder: (context, i) => ReorderableDelayedDragStartListener(
+        key: ValueKey(accounts[i].key),
+        index: i,
+        child: _EnergyCard(
+          index: i,
+          account: accounts[i],
+          state: energy.of(accounts[i]),
+          now: now,
+        ),
+      ),
     );
   }
 }
 
 class _EnergyCard extends ConsumerWidget {
   const _EnergyCard({
+    required this.index,
     required this.account,
-    required this.showAccount,
     required this.state,
     required this.now,
   });
 
+  /// Position in the reorderable list.
+  final int index;
   final Account account;
-  final bool showAccount;
   final EnergyState state;
   final DateTime now;
 
@@ -89,13 +106,13 @@ class _EnergyCard extends ConsumerWidget {
                   Expanded(
                     child: GameAccountTitle(
                       account: account,
-                      showAccount: showAccount,
                       style: theme.textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
                   ),
                   if (account.game == GameId.nte)
                     IconButton(
+                      visualDensity: VisualDensity.compact,
                       tooltip: 'NTE Weekly Dashboard',
                       icon: const Icon(Icons.event_repeat),
                       onPressed: () => Navigator.of(context).push(
@@ -104,6 +121,7 @@ class _EnergyCard extends ConsumerWidget {
                       ),
                     ),
                   IconButton(
+                    visualDensity: VisualDensity.compact,
                     tooltip: state.notifyCap
                         ? 'Cap alert on'
                         : 'Cap alert off',
@@ -118,6 +136,19 @@ class _EnergyCard extends ConsumerWidget {
                     onPressed: () => ref
                         .read(energyProvider.notifier)
                         .setNotify(account, !state.notifyCap),
+                  ),
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: SizedBox(
+                      width: 28,
+                      height: 40,
+                      child: Icon(
+                        Icons.drag_indicator,
+                        size: 20,
+                        color: theme.colorScheme.outline,
+                        semanticLabel: 'Drag to reorder',
+                      ),
+                    ),
                   ),
                 ],
               ),

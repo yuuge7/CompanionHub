@@ -5,8 +5,8 @@ import '../core/games.dart';
 import '../data/models.dart';
 import '../providers/providers.dart';
 
-/// Multi-account mode: add, rename and remove accounts per game, and pick
-/// which account the home screen widget shows.
+/// Name each game's account and, in multi-account mode, add and remove extra
+/// accounts and pick which one the home screen widget shows.
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
 
@@ -23,9 +23,14 @@ class AccountsScreen extends ConsumerWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
             child: Text(
-              'Each account keeps its own energy, pity plan, dailies and NTE '
-              'weeklies. Tap an account to rename it; the widget icon picks '
-              'which account the home screen widget shows.',
+              settings.multiAccountEnabled
+                  ? 'Each account keeps its own energy, pity plan, dailies '
+                      'and NTE weeklies. Tap an account to rename it; the '
+                      'widget icon picks which account the home screen widget '
+                      'shows.'
+                  : 'Tap an account to name it; the name is shown on its '
+                      'cards. Turn on multi-account mode in Settings to track '
+                      'more than one account per game.',
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.outline),
             ),
@@ -49,7 +54,9 @@ class _GameAccountsCard extends ConsumerWidget {
     final cfg = game.config;
     final theme = Theme.of(context);
     final notifier = ref.read(settingsProvider.notifier);
-    final accounts = settings.accountsOf(game);
+    // Only the main account while multi-account mode is off: extras are
+    // paused and come back with the mode.
+    final accounts = settings.activeAccountsOf(game);
     final widgetAccount = settings.widgetAccountOf(game);
     final canAdd = accounts.length < kMaxAccountsPerGame;
 
@@ -70,22 +77,26 @@ class _GameAccountsCard extends ConsumerWidget {
                         style: theme.textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w600)),
                   ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.person_add_alt_1_outlined, size: 18),
-                    label: const Text('Add account'),
-                    onPressed: canAdd
-                        ? () async {
-                            final name = await _askName(
-                              context,
-                              title: 'Add ${cfg.shortName} account',
-                              action: 'Add',
-                            );
-                            if (name != null) {
-                              await notifier.addAccount(game, name);
+                  if (settings.multiAccountEnabled)
+                    TextButton.icon(
+                      icon:
+                          const Icon(Icons.person_add_alt_1_outlined, size: 18),
+                      label: const Text('Add account'),
+                      onPressed: canAdd
+                          ? () async {
+                              final name = await _askName(
+                                context,
+                                title: 'Add ${cfg.shortName} account',
+                                action: 'Add',
+                              );
+                              if (name != null) {
+                                await notifier.addAccount(game, name);
+                              }
                             }
-                          }
-                        : null,
-                  ),
+                          : null,
+                    )
+                  else
+                    const SizedBox(height: 36),
                 ],
               ),
             ),

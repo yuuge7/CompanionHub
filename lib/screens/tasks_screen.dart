@@ -60,7 +60,6 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
     final now = ref.watch(clockProvider).value ?? DateTime.now();
     final tasks = ref.watch(tasksProvider.notifier);
     ref.watch(tasksProvider); // rebuild when checks change
-    final settings = ref.watch(settingsProvider);
     final theme = Theme.of(context);
 
     return ListView(
@@ -147,7 +146,6 @@ class _TasksScreenState extends ConsumerState<TasksScreen>
           _GameTaskCard(
             key: ValueKey(a.key),
             account: a,
-            showAccount: settings.showsAccountLabels(a.game),
             now: now,
             tasks: tasks,
           ),
@@ -160,13 +158,11 @@ class _GameTaskCard extends ConsumerWidget {
   const _GameTaskCard({
     super.key,
     required this.account,
-    required this.showAccount,
     required this.now,
     required this.tasks,
   });
 
   final Account account;
-  final bool showAccount;
   final DateTime now;
   final TasksNotifier tasks;
 
@@ -189,7 +185,6 @@ class _GameTaskCard extends ConsumerWidget {
         leading: CircleAvatar(radius: 5, backgroundColor: cfg.color),
         title: GameAccountTitle(
           account: account,
-          showAccount: showAccount,
           style: theme.textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w600),
         ),

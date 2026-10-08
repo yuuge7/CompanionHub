@@ -4,7 +4,6 @@ import '../core/games.dart';
 import '../data/models.dart';
 
 /// Small outlined pill naming an account, tinted with its game's colour.
-/// Shown next to a game's name only when that game tracks several accounts.
 class AccountTag extends StatelessWidget {
   const AccountTag(this.account, {super.key});
 
@@ -34,31 +33,26 @@ class AccountTag extends StatelessWidget {
   }
 }
 
-/// Game name followed by an [AccountTag] when [showAccount] is set.
+/// Game name followed by the account's [AccountTag]. Every account is tagged,
+/// a game's only one included.
 class GameAccountTitle extends StatelessWidget {
-  const GameAccountTitle({
-    super.key,
-    required this.account,
-    required this.showAccount,
-    this.style,
-  });
+  const GameAccountTitle({super.key, required this.account, this.style});
 
   final Account account;
-  final bool showAccount;
   final TextStyle? style;
 
   @override
   Widget build(BuildContext context) {
-    final name = Text(
-      account.game.config.name,
-      style: style,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-    );
-    if (!showAccount) return name;
     return Row(
       children: [
-        Flexible(child: name),
+        Flexible(
+          child: Text(
+            account.game.config.name,
+            style: style,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
         const SizedBox(width: 8),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 112),

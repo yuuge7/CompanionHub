@@ -7,7 +7,7 @@ import '../data/models.dart';
 /// Pushes currency-to-pulls data into the native Android home screen widget.
 /// Keys must match PullWidgetProvider.kt. `vis_<game>` ("1"/"0") tells the
 /// provider whether the game's row should be shown at all; `acct_<game>` is
-/// the label of the account shown (empty unless the game has several).
+/// the label of the account shown, a game's only account included.
 ///
 /// Energy is pushed as an *anchor* (main pool + reserve + timestamp) together
 /// with the account's cap and the regen rates; the Kotlin provider projects it forward on every periodic
@@ -32,8 +32,7 @@ class WidgetService {
       final st = energy[account.key] ?? EnergyState.initial(account);
       await HomeWidget.saveWidgetData<String>(
           'vis_${g.key}', settings.isHidden(g) ? '0' : '1');
-      await HomeWidget.saveWidgetData<String>('acct_${g.key}',
-          settings.showsAccountLabels(g) ? account.label : '');
+      await HomeWidget.saveWidgetData<String>('acct_${g.key}', account.label);
       await HomeWidget.saveWidgetData<String>(
           'cur_${g.key}', _compact.format(plan.currency));
       await HomeWidget.saveWidgetData<String>('pulls_${g.key}', '$pulls');

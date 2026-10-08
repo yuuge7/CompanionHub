@@ -80,13 +80,20 @@ class SettingsNotifier extends Notifier<AppSettings> {
 
   Future<void> setWidgetAccount(Account a) =>
       update(state.withWidgetAccount(a));
+
+  /// Moves the card at [from] of the shown accounts to index [to]. Only the
+  /// order changes, so no alert or widget needs re-planning.
+  Future<void> moveAccount(int from, int to) async {
+    state = state.withVisibleAccountMoved(from, to);
+    await Store.saveSettings(state);
+  }
 }
 
 /// Games currently shown in tabs/overlay/widget, in canonical order.
 final visibleGamesProvider = Provider<List<GameId>>(
     (ref) => ref.watch(settingsProvider).visibleGames);
 
-/// Accounts currently shown in tabs/overlay, grouped by game.
+/// Accounts currently shown in tabs/overlay, in the user's card order.
 final visibleAccountsProvider = Provider<List<Account>>(
     (ref) => ref.watch(settingsProvider).visibleAccounts);
 

@@ -4,7 +4,7 @@ import 'reset_time.dart';
 
 /// The supported games. New games are appended so each game's [Enum.index]
 /// (used in notification ids) stays stable across releases.
-enum GameId { hsr, wuwa, re1999, nte, genshin }
+enum GameId { hsr, wuwa, re1999, nte, genshin, zzz }
 
 extension GameIdX on GameId {
   GameConfig get config => kGames[this]!;
@@ -70,7 +70,8 @@ class GameConfig {
   final String? capUpgradeName;
 
   /// Separate overflow pool that fills only while the main pool is at/above
-  /// its cap (HSR Reserved Trailblaze Power, WuWa Waveplate Crystals). It is
+  /// its cap (HSR Reserved Trailblaze Power, WuWa Waveplate Crystals, ZZZ
+  /// Backup Battery Charge). It is
   /// not spent by activities, so it is tracked apart from the main pool.
   /// null = the game has no reserve and regeneration simply stops at the cap.
   final String? reserveName;
@@ -258,6 +259,37 @@ final Map<GameId, GameConfig> kGames = {
       'Spend Original Resin',
       'Collect & resend Expeditions',
       'Serenitea Pot: realm currency',
+    ],
+  ),
+  GameId.zzz: const GameConfig(
+    id: GameId.zzz,
+    name: 'Zenless Zone Zero',
+    shortName: 'ZZZ',
+    color: Color(0xFFFF9F43),
+    energyName: 'Battery Charge',
+    currencyName: 'Polychrome',
+    pullName: 'Master Tapes',
+    normalCap: 240,
+    normalRateMinutes: 6,
+    reserveName: 'Backup Battery Charge',
+    reserveCap: 2400,
+    reserveRateMinutes: 18,
+    // Combat Simulation 20 per card (1-5 cards), Expert Challenge 40,
+    // Routine Cleanup / Notorious Hunt 60.
+    quickDeltas: [-100, -60, -40, -20],
+    pullCost: 160,
+    hardPity: 90,
+    softPityStart: 74,
+    baseRate: 0.006,
+    softPityIncrement: 0.06,
+    has5050: true,
+    reset: ServerReset(4, 1), // Europe server
+    dailyTasks: [
+      'Errands: 400 Engagement',
+      'Spend Battery Charge',
+      'Coff Cafe: daily coffee',
+      "Howl's newsstand: scratch card",
+      'Open the Video Store',
     ],
   ),
 };

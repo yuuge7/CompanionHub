@@ -316,4 +316,66 @@
             android:textSize="14sp"
             android:textStyle="bold" />
     </LinearLayout>
+
+    <!-- ZZZ -->
+    <LinearLayout
+        android:id="@+id/row_zzz"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="52dp"
+            android:layout_height="wrap_content"
+            android:text="ZZZ"
+            android:textColor="#FF9F43"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/txt_energy_zzz"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="0 • ⚡ 0/240"
+                android:textColor="#9AA0AE"
+                android:textSize="11sp" />
+
+            <ProgressBar
+                android:id="@+id/progress_zzz"
+                style="@android:style/Widget.ProgressBar.Horizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:max="240"
+                android:progress="0"
+                android:progressTint="#FF9F43" />
+
+            <TextView
+                android:id="@+id/txt_eta_zzz"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:text="full in —"
+                android:textColor="#7C8394"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/txt_pulls_zzz"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="0 pulls"
+            android:textColor="#ECEBF3"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
 </LinearLayout>

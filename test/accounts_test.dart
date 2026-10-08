@@ -3,6 +3,8 @@ import 'package:companion_hub/core/games.dart';
 import 'package:companion_hub/core/pity_math.dart';
 import 'package:companion_hub/data/models.dart';
 import 'package:companion_hub/services/notification_service.dart';
+import 'package:companion_hub/services/widget_service.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -92,20 +94,28 @@ void main() {
       ]);
     });
 
-    test('labels are appended only when a game has several accounts', () {
+    test('labels are appended for several accounts or a named one', () {
       final s = base
           .withAccountAdded(GameId.hsr, 'Alt')
           .copyWith(multiAccountEnabled: true);
       expect(s.withAccountLabel('HSR', GameId.hsr, 1), 'HSR · Alt');
       expect(s.withAccountLabel('HSR', GameId.hsr, 0), 'HSR · Main');
       expect(s.withAccountLabel('WuWa', GameId.wuwa, 0), 'WuWa');
+
+      const wuwa = Account(GameId.wuwa, Account.mainId);
+      final named = base.withAccountRenamed(wuwa, 'EU');
+      expect(named.accountOf(GameId.wuwa, 0).label, 'EU');
+      expect(named.withAccountLabel('WuWa', GameId.wuwa, 0), 'WuWa · EU',
+          reason: 'a named account is labelled even as the only one');
+      expect(named.withAccountRenamed(wuwa, '').labelsAccount(GameId.wuwa, 0),
+          isFalse);
     });
 
     test('extras are inactive while multi-account mode is off', () {
       final s = base.withAccountAdded(GameId.hsr, 'Alt');
       expect(s.activeAccountsOf(GameId.hsr).length, 1);
       expect(s.isAccountActive(GameId.hsr, 1), isFalse);
-      expect(s.showsAccountLabels(GameId.hsr), isFalse);
+      expect(s.labelsAccount(GameId.hsr, 0), isFalse);
       expect(
         s.allAccounts.length,
         GameId.values.length + 1,
@@ -114,8 +124,8 @@ void main() {
 
       final on = s.copyWith(multiAccountEnabled: true);
       expect(on.isAccountActive(GameId.hsr, 1), isTrue);
-      expect(on.showsAccountLabels(GameId.hsr), isTrue);
-      expect(on.showsAccountLabels(GameId.wuwa), isFalse);
+      expect(on.labelsAccount(GameId.hsr, 0), isTrue);
+      expect(on.labelsAccount(GameId.wuwa, 0), isFalse);
       expect(on.visibleAccounts.length, GameId.values.length + 1);
     });
 
@@ -184,7 +194,110 @@ void main() {
       });
       expect(old.multiAccountEnabled, isFalse);
       expect(old.accounts, isEmpty);
+      expect(old.accountOrder, isEmpty);
       expect(old.isHidden(GameId.nte), isTrue);
+    });
+  });
+
+  group('card order', () {
+    const base = AppSettings();
+    List<String> keys(AppSettings s) =>
+        [for (final a in s.visibleAccounts) a.key];
+
+    test('canonical until the user rearranges it', () {
+      expect(keys(base), [for (final g in GameId.values) g.key]);
+    });
+
+    test('moving a card up and down', () {
+      final wuwaFirst = base.withVisibleAccountMoved(1, 0);
+      expect(keys(wuwaFirst).take(3), ['wuwa', 'hsr', 're1999']);
+      final hsrLast =
+          wuwaFirst.withVisibleAccountMoved(1, GameId.values.length - 1);
+      expect(keys(hsrLast).first, 'wuwa');
+      expect(keys(hsrLast).last, 'hsr');
+      expect(base.withVisibleAccountMoved(0, 0).accountOrder, isEmpty,
+          reason: 'dropping a card where it was stores nothing');
+      expect(keys(base.withVisibleAccountMoved(9, 0)), keys(base));
+      expect(keys(base.withVisibleAccountMoved(0, 99)).last, 'hsr');
+    });
+
+    test('a main account can jump ahead of another game\'s alts', () {
+      var s = base
+          .withAccountAdded(GameId.hsr, 'Alt 1')
+          .withAccountAdded(GameId.hsr, 'Alt 2')
+          .copyWith(multiAccountEnabled: true);
+      expect(keys(s).take(4), ['hsr', 'hsr@1', 'hsr@2', 'wuwa']);
+      s = s.withVisibleAccountMoved(3, 0);
+      expect(keys(s).take(4), ['wuwa', 'hsr', 'hsr@1', 'hsr@2']);
+      expect(keys(AppSettings.fromJson(s.toJson())), keys(s),
+          reason: 'the order survives a restart');
+    });
+
+    test('accounts added later follow their game', () {
+      var s = base.copyWith(multiAccountEnabled: true);
+      s = s.withVisibleAccountMoved(0, 2); // wuwa, re1999, hsr, ...
+      s = s.withAccountAdded(GameId.hsr, 'Alt');
+      expect(keys(s).take(4), ['wuwa', 're1999', 'hsr', 'hsr@1']);
+    });
+
+    test('games the saved order has never seen go last', () {
+      final s = base.copyWith(accountOrder: ['wuwa', 'hsr']);
+      expect(keys(s).take(2), ['wuwa', 'hsr']);
+      expect(keys(s).length, GameId.values.length);
+      expect(keys(s).last, GameId.values.last.key);
+    });
+
+    test('hidden and paused accounts keep their slot', () {
+      var s = base
+          .withAccountAdded(GameId.hsr, 'Alt')
+          .copyWith(multiAccountEnabled: true);
+      s = s.withVisibleAccountMoved(1, 0); // hsr@1, hsr, wuwa, ...
+      final paused = s.copyWith(
+          multiAccountEnabled: false, hiddenGames: {GameId.wuwa});
+      expect(keys(paused).take(2), ['hsr', 're1999']);
+      // Swap the two cards that are left; the alt and WuWa stay put.
+      final back = paused
+          .withVisibleAccountMoved(0, 1)
+          .copyWith(multiAccountEnabled: true, hiddenGames: {});
+      expect(keys(back).take(4), ['hsr@1', 're1999', 'wuwa', 'hsr']);
+    });
+
+    test('removing an account drops it from the order', () {
+      var s = base
+          .withAccountAdded(GameId.hsr, 'Alt')
+          .copyWith(multiAccountEnabled: true);
+      s = s.withVisibleAccountMoved(1, 0);
+      final alt = s.accountsOf(GameId.hsr).last;
+      final removed = s.withAccountRemoved(alt);
+      expect(removed.accountOrder, isNot(contains(alt.key)));
+      expect(keys(removed).first, 'hsr');
+    });
+
+    test('reordering leaves the roster key alone', () {
+      expect(base.withVisibleAccountMoved(1, 0).rosterKey, base.rosterKey);
+    });
+  });
+
+  group('home widget', () {
+    test('every row carries its account name, a single account included',
+        () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final saved = <String, Object?>{};
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('home_widget'),
+              (call) async {
+        if (call.method == 'saveWidgetData') {
+          saved[call.arguments['id'] as String] = call.arguments['data'];
+        }
+        return true;
+      });
+
+      const wuwa = Account(GameId.wuwa, Account.mainId);
+      await WidgetService.push(
+          {}, {}, const AppSettings().withAccountRenamed(wuwa, 'EU'));
+      expect(saved['acct_hsr'], 'Main');
+      expect(saved['acct_wuwa'], 'EU');
+      expect(saved['acct_zzz'], 'Main');
     });
   });
 
@@ -272,6 +385,42 @@ void main() {
       expect(ratePerPull(gi, 90), 1.0);
       expect(worstCasePulls(gi, 0, false), 180);
       expect(chanceOfFeatured(gi, 0, true, 90), closeTo(1.0, 1e-9));
+    });
+  });
+
+  group('Zenless Zone Zero', () {
+    final zzz = GameId.zzz.config;
+    final t0 = DateTime(2026, 7, 1, 12, 0);
+    EnergySnapshot at(int energy, Duration elapsed) => projectEnergy(zzz,
+        energy: energy, anchorTime: t0, now: t0.add(elapsed));
+
+    test('appended last, so older games keep their notification ids', () {
+      expect(GameId.zzz.index, GameId.values.length - 1);
+      expect(GameId.genshin.index, 4);
+      expect(GameId.zzz.key, 'zzz');
+    });
+
+    test('Battery Charge regenerates 1 per 6 minutes up to 240', () {
+      expect(at(100, const Duration(hours: 1)).current, 110);
+      expect(at(180, Duration.zero).capAt,
+          t0.add(const Duration(minutes: 360)));
+    });
+
+    test('Backup Battery Charge: 1 per 18 minutes, 2400 on top', () {
+      // 10 below cap -> 60 min to cap, then 3h at 1/18min = 10 backup.
+      final snap = at(230, const Duration(hours: 4));
+      expect(snap.current, 240);
+      expect(snap.reserve, 10);
+      final full = at(240, const Duration(days: 30));
+      expect(full.reserve, 2400);
+      expect(full.wasting, isTrue);
+    });
+
+    test('pity: 90 hard pity with a 50/50', () {
+      expect(ratePerPull(zzz, 1), 0.006);
+      expect(ratePerPull(zzz, 90), 1.0);
+      expect(worstCasePulls(zzz, 0, false), 180);
+      expect(chanceOfFeatured(zzz, 0, true, 90), closeTo(1.0, 1e-9));
     });
   });
 }

@@ -34,8 +34,25 @@ void main() {
     expect(alt.label, 'Alt');
     expect(find.text('Alt'), findsOneWidget,
         reason: 'the extra account gets its own tagged card');
-    expect(find.text('Main'), findsOneWidget,
-        reason: 'the main account is tagged once the game has two accounts');
+    expect(find.text('Main'), findsNWidgets(GameId.values.length),
+        reason: 'every card is tagged, a game\'s only account included');
+
+    // A single account shows the name it was given.
+    const wuwa = Account(GameId.wuwa, Account.mainId);
+    await settle(tester, () => settings.renameAccount(wuwa, 'EU main'));
+    expect(find.text('EU main'), findsOneWidget);
+    expect(find.text('Main'), findsNWidgets(GameId.values.length - 1));
+
+    // Moving the WuWa card to the top puts it above the HSR accounts.
+    double top(String text) => tester.getTopLeft(find.text(text)).dy;
+    expect(top('EU main'), greaterThan(top('Alt')));
+    await settle(
+        tester,
+        () => settings.moveAccount(
+            current().visibleAccounts.indexOf(wuwa), 0));
+    expect(top('EU main'), lessThan(top('Alt')));
+    expect(Store.settings().visibleAccounts.first, wuwa,
+        reason: 'the card order is persisted');
 
     await settle(tester,
         () => container.read(energyProvider.notifier).setEnergy(alt, energy: 42));

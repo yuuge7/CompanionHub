@@ -7,8 +7,8 @@
 Energy timers, pity forecasting, daily-task tracking, a floating in-game
 checklist and a home screen widget — for
 **Honkai: Star Rail**, **Wuthering Waves**, **Reverse: 1999**,
-**Neverness to Everness** and **Genshin Impact** — with a multi-account mode for
-players running more than one account per game.
+**Neverness to Everness**, **Genshin Impact** and **Zenless Zone Zero** — with a
+multi-account mode for players running more than one account per game.
 
 100% on-device · no account · no network · no telemetry
 
@@ -44,6 +44,7 @@ tracked separately, as in-game:
 | Re:1999 | 240 Activity, 1 / 6 min | — |
 | NTE | 240–360 Character Pixels (Dream Weaver's Knot level), 1 / 6 min | — |
 | Genshin | 200 Original Resin, 1 / 8 min | — |
+| ZZZ | 240 Battery Charge, 1 / 6 min | 2,400 Backup Battery Charge, 1 / 18 min |
 
 The reserve only fills while the main pool is at its cap, and spending never
 touches it. Values above the cap (after refills) are kept; regeneration pauses
@@ -51,16 +52,20 @@ until you drop below. Cap warnings fire 30 minutes ahead. **Sleep Safe**
 suppresses night-time alarms and instead sends a single silent morning summary
 reporting what the reserve banked overnight.
 
+Cards can be rearranged: drag one by its handle (or long-press it) to move it up
+or down, e.g. to put a main account above another game's alts. The order is
+saved and shared with the Tasks tab and the overlay bubble.
+
 ### 🎲 Pity forecaster
 Exact probability of securing the featured character given current pity,
 guarantee state and projected currency income to a target date — a soft-pity
-convolution model with 50/50 handling for HSR/WuWa/Re:1999/Genshin and
+convolution model with 50/50 handling for HSR/WuWa/Re:1999/Genshin/ZZZ and
 straight guarantee for NTE (0.99% per roll, 19.59% on the Modified Board after
 70 rolls, featured S-class guaranteed on roll 90).
 
 ### ✅ Daily tasks & floating overlay
 Per-game daily checklists that auto-clear at each game's server reset. Resets
-are defined on the server clock (HSR/WuWa/Genshin Europe 04:00 UTC+1, NTE
+are defined on the server clock (HSR/WuWa/Genshin/ZZZ Europe 04:00 UTC+1, NTE
 Europe 05:00 UTC+0, Re:1999 Global 05:00 UTC-5) and shown in your time zone, so
 they stay right across daylight-saving switches. A draggable
 **floating bubble** (`flutter_overlay_window`) expands into the checklist over
@@ -82,10 +87,13 @@ without waking the Flutter engine.
 ### 👥 Multi-account mode
 Turn on **Settings → Multi-account mode**, then **Manage accounts** to add up to
 ten accounts per game (main + alts, e.g. one per server). Each account keeps its
-own energy timer and cap alerts, pity plan, daily checklist and NTE weeklies;
-cards, the overlay bubble and notifications are tagged with the account name
-once a game has more than one. Pick which account the home screen widget shows
-per game. Turning the mode off pauses the extra accounts (no cards, no alerts)
+own energy timer and cap alerts, pity plan, daily checklist and NTE weeklies.
+Pick which account the home screen widget shows per game.
+
+Every account has a name — "Main" until you change it under **Manage accounts**,
+which also works with the mode off — and every card and home widget row shows
+it. The overlay bubble and notifications add the name once a game has more than
+one account or you named the account yourself. Turning the mode off pauses the extra accounts (no cards, no alerts)
 without deleting anything; removing an account deletes its data.
 
 Existing single-account data needs no migration: the main account keeps the
@@ -312,7 +320,7 @@ Every game constant — caps, regen rates, pity curves, pull costs, reset hours
 and daily/weekly task lists — lives in one file:
 [`lib/core/games.dart`](lib/core/games.dart). Server resets there default to
 the Europe servers (Global for Re:1999); change `reset:` for other regions.
-Soft-pity curves for HSR/WuWa/Genshin/Re:1999 are the usual community models,
+Soft-pity curves for HSR/WuWa/Genshin/Re:1999/ZZZ are the usual community models,
 not official tables.
 
 ---

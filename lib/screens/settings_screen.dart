@@ -20,11 +20,11 @@ class SettingsScreen extends ConsumerWidget {
     final extras = settings.allAccounts.where((a) => !a.isMain).length;
     if (!settings.multiAccountEnabled) {
       return extras == 0
-          ? 'Turn on multi-account mode first'
+          ? 'Name your accounts'
           : '$extras extra account${extras == 1 ? '' : 's'} paused';
     }
     return extras == 0
-        ? 'Add a second account for any game'
+        ? 'Name accounts or add a second one for any game'
         : '$extras extra account${extras == 1 ? '' : 's'}';
   }
 
@@ -108,7 +108,6 @@ class SettingsScreen extends ConsumerWidget {
                     .update(settings.copyWith(multiAccountEnabled: v)),
               ),
               ListTile(
-                enabled: settings.multiAccountEnabled,
                 leading: const Icon(Icons.manage_accounts_outlined),
                 title: const Text('Manage accounts'),
                 subtitle: Text(_accountsSummary(settings)),

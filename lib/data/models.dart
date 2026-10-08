@@ -306,6 +306,7 @@ class AppSettings {
     this.accounts = const [],
     this.widgetAccounts = const {},
     this.lastAccountIds = const {},
+    this.accountOrder = const [],
   });
 
   final bool notificationsEnabled;
@@ -337,6 +338,11 @@ class AppSettings {
   /// selection) can't end up pointing at a newer one.
   final Map<GameId, int> lastAccountIds;
 
+  /// Card order the user dragged together on the Energy tab, as
+  /// [Account.key]s. Empty = canonical order. Use [orderedAccounts] rather
+  /// than reading this directly: it may miss accounts added since.
+  final List<String> accountOrder;
+
   bool isHidden(GameId g) => hiddenGames.contains(g);
 
   /// Games shown in tabs/overlay/widget, in canonical order. The settings UI
@@ -366,21 +372,46 @@ class AppSettings {
   List<Account> get allAccounts =>
       [for (final g in GameId.values) ...accountsOf(g)];
 
-  /// Accounts shown in tabs and the overlay, grouped by game in canonical
-  /// order.
-  List<Account> get visibleAccounts =>
-      [for (final g in visibleGames) ...activeAccountsOf(g)];
+  /// Every account in the user's card order ([accountOrder]). Accounts the
+  /// order doesn't know yet follow the last account of their game, or go to
+  /// the end when the whole game is new to it.
+  List<Account> get orderedAccounts {
+    final all = allAccounts;
+    if (accountOrder.isEmpty) return all;
+    final rank = {
+      for (var i = 0; i < accountOrder.length; i++) accountOrder[i]: i,
+    };
+    final out = [for (final a in all) if (rank.containsKey(a.key)) a]
+      ..sort((a, b) => rank[a.key]!.compareTo(rank[b.key]!));
+    for (final a in all) {
+      if (rank.containsKey(a.key)) continue;
+      final last = out.lastIndexWhere((x) => x.game == a.game);
+      out.insert(last < 0 ? out.length : last + 1, a);
+    }
+    return out;
+  }
 
-  /// Changes only when accounts are added or removed (not renamed), so
-  /// state notifiers can reload exactly when the roster changes.
+  /// Accounts shown in tabs and the overlay, in the user's card order
+  /// (grouped by game in canonical order until they rearrange it).
+  List<Account> get visibleAccounts => [
+        for (final a in orderedAccounts)
+          if (isAccountActive(a.game, a.id)) a,
+      ];
+
+  /// Changes only when accounts are added or removed (not renamed or
+  /// reordered), so state notifiers can reload exactly when the roster
+  /// changes.
   String get rosterKey => allAccounts.map((a) => a.key).join(',');
 
   /// Whether [accountId] of [g] is shown and may fire alerts.
   bool isAccountActive(GameId g, int accountId) =>
       !isHidden(g) && activeAccountsOf(g).any((a) => a.id == accountId);
 
-  /// True when [g] shows more than one account, so each needs a label.
-  bool showsAccountLabels(GameId g) => activeAccountsOf(g).length > 1;
+  /// Whether [accountId] of [g] is named in alerts and overlay chips: the
+  /// game shows several accounts, or the user gave this one a name. Cards and
+  /// the home widget always show the account name.
+  bool labelsAccount(GameId g, int accountId) =>
+      activeAccountsOf(g).length > 1 || accountOf(g, accountId).name.isNotEmpty;
 
   Account accountOf(GameId g, int accountId) => accountsOf(g).firstWhere(
         (a) => a.id == accountId,
@@ -434,17 +465,39 @@ class AppSettings {
         for (final e in widgetAccounts.entries)
           if (!(e.key == a.game && e.value == a.id)) e.key: e.value,
       },
+      accountOrder: [for (final k in accountOrder) if (k != a.key) k],
     );
   }
 
   AppSettings withWidgetAccount(Account a) =>
       copyWith(widgetAccounts: {...widgetAccounts, a.game: a.id});
 
-  /// [base] followed by " · " and the account label when [g] shows several
-  /// accounts, e.g. "HSR · Alt". The label is looked up fresh, so renames
-  /// show up even through a stale [Account].
+  /// Settings with the card at [from] of [visibleAccounts] moved to index
+  /// [to] (its index once it is taken out of the list). Accounts not shown
+  /// right now (hidden games, paused extras) keep their slots, so they come
+  /// back where they were.
+  AppSettings withVisibleAccountMoved(int from, int to) {
+    final shown = visibleAccounts;
+    if (from < 0 || from >= shown.length) return this;
+    final moved = [...shown];
+    final account = moved.removeAt(from);
+    final at = to.clamp(0, moved.length);
+    if (at == from) return this;
+    moved.insert(at, account);
+    var next = 0;
+    return copyWith(accountOrder: [
+      for (final a in orderedAccounts)
+        (shown.contains(a) ? moved[next++] : a).key,
+    ]);
+  }
+
+  /// [base] followed by " · " and the account label when [labelsAccount]
+  /// says so, e.g. "HSR · Alt". The label is looked up fresh, so renames show
+  /// up even through a stale [Account].
   String withAccountLabel(String base, GameId g, int accountId) =>
-      showsAccountLabels(g) ? '$base · ${accountOf(g, accountId).label}' : base;
+      labelsAccount(g, accountId)
+          ? '$base · ${accountOf(g, accountId).label}'
+          : base;
 
   /// Whether [t] falls inside the sleep window.
   bool isAsleep(DateTime t) {
@@ -474,6 +527,7 @@ class AppSettings {
     List<Account>? accounts,
     Map<GameId, int>? widgetAccounts,
     Map<GameId, int>? lastAccountIds,
+    List<String>? accountOrder,
   }) =>
       AppSettings(
         notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
@@ -487,6 +541,7 @@ class AppSettings {
         accounts: accounts ?? this.accounts,
         widgetAccounts: widgetAccounts ?? this.widgetAccounts,
         lastAccountIds: lastAccountIds ?? this.lastAccountIds,
+        accountOrder: accountOrder ?? this.accountOrder,
       );
 
   Map<String, dynamic> toJson() => {
@@ -501,6 +556,7 @@ class AppSettings {
         'accounts': [for (final a in accounts) a.toJson()],
         'widgetAccounts': _gameIntMapToJson(widgetAccounts),
         'lastAccountIds': _gameIntMapToJson(lastAccountIds),
+        'accountOrder': accountOrder,
       };
 
   static Map<String, int> _gameIntMapToJson(Map<GameId, int> m) =>
@@ -536,6 +592,10 @@ class AppSettings {
       ],
       widgetAccounts: _gameIntMapFromJson(j['widgetAccounts']),
       lastAccountIds: _gameIntMapFromJson(j['lastAccountIds']),
+      accountOrder: [
+        for (final k in (j['accountOrder'] as List? ?? const []))
+          if (k is String) k,
+      ],
     );
   }
 }

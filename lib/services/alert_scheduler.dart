@@ -45,7 +45,7 @@ class AlertScheduler {
     final snap = st.projectAt(now);
     final capAt = snap.capAt;
     if (capAt == null) return; // already at/above normal cap
-    // "HSR", or "HSR · Alt" when the game shows several accounts.
+    // "HSR", or "HSR · Alt" for a named account / a game showing several.
     final prefix =
         settings.withAccountLabel(g.shortName, st.game, st.accountId);
 
@@ -103,11 +103,10 @@ class AlertScheduler {
       return;
     }
 
-    final labelled = settings.showsAccountLabels(GameId.nte);
     final lines = [
       for (final a in settings.activeAccountsOf(GameId.nte))
         if (weeklies[a.key] case final s? when !s.allDone)
-          (labelled ? '${a.label}: ' : '') +
+          (settings.labelsAccount(GameId.nte, a.id) ? '${a.label}: ' : '') +
               [
                 for (var i = 0; i < kNteWeeklyTasks.length; i++)
                   if (!s.done[i]) kNteWeeklyTasks[i],

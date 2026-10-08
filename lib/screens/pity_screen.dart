@@ -6,6 +6,7 @@ import '../core/games.dart';
 import '../core/pity_math.dart';
 import '../data/models.dart';
 import '../providers/providers.dart';
+import 'account_tag.dart';
 
 /// Module B: Pity Forecaster. Projects currency income to a target date and
 /// computes the exact probability of securing the featured character.
@@ -48,8 +49,19 @@ class _PityScreenState extends ConsumerState<PityScreen> {
           child: SegmentedButton<GameId>(
             segments: [
               for (final g in games)
-                ButtonSegment(value: g, label: Text(g.config.shortName)),
+                ButtonSegment(
+                  value: g,
+                  // Six games share the row: shrink a long name rather than
+                  // let it wrap.
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(g.config.shortName, softWrap: false),
+                  ),
+                ),
             ],
+            style: SegmentedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+            ),
             selected: {selected},
             showSelectedIcon: false,
             onSelectionChanged: (s) => setState(() => _selected = s.first),
@@ -172,11 +184,21 @@ class _PlanFormState extends ConsumerState<_PlanForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Your account',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600)),
+            Row(
+              children: [
+                Text('Your account',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: AccountTag(ref
+                      .watch(settingsProvider)
+                      .accountOf(plan.game, plan.accountId)),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Row(children: [
               _numField(_pity, 'Current pity', suffix: '/ ${cfg.hardPity}'),
